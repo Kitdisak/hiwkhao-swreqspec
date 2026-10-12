@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ค้นหาหนังสือ</title>
+    <style>
+      body { font-family: sans-serif; max-width: 920px; margin: 40px auto; padding: 0 16px; }
+      input, select { padding: 10px; margin-right: 8px; }
+      button { padding: 10px 16px; }
+      .result { border: 1px solid #ddd; padding: 12px; margin-top: 12px; border-radius: 8px; }
+      .empty { color: #a11; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h1>ค้นหาหนังสือ</h1>
+    <div>
+      <input id="query" type="text" placeholder="ค้นหาด้วยชื่อ ผู้แต่ง ISBN หรือคำสำคัญ" />
+      <select id="category">
+        <option value="">ทุกหมวด</option>
+        <option value="005">005</option>
+        <option value="006">006</option>
+        <option value="658">658</option>
+      </select>
+      <input id="author" type="text" placeholder="ผู้แต่ง" />
+      <button id="searchBtn">ค้นหา</button>
+    </div>
+    <div id="results"></div>
+    <script>
+      const resultsEl = document.getElementById('results');
+      const queryEl = document.getElementById('query');
+      const categoryEl = document.getElementById('category');
+      const authorEl = document.getElementById('author');
+
+      async function searchBooks() {
+        const query = queryEl.value.trim();
+        const category = categoryEl.value;
+        const author = authorEl.value.trim();
+        const params = new URLSearchParams();
+        if (query) params.set('query', query);
+        if (category) params.set('category', category);
+        if (author) params.set('author', author);
+
+        const response = await fetch(`/api/books/search?${params.toString()}`);
+        const data = await response.json();
+        if (!data.results.length) {
+          resultsEl.innerHTML = `<div class="empty">${data.message}</div>`;
+          return;
+        }
+        resultsEl.innerHTML = data.results.map((book) => `
+          <div class="result">
+            <strong>${book.title}</strong><br>
+            ผู้แต่ง: ${book.authors.join(', ')}<br>
+            ISBN: ${book.isbn}<br>
+            รหัสประจำเล่ม: ${book.item_identifier}<br>
+            DDC: ${book.ddc_category}
+          </div>
+        `).join('');
+      }
+
+      document.getElementById('searchBtn').addEventListener('click', searchBooks);
+    </script>
+  </body>
+</html>
