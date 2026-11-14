@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>เข้าสู่ระบบ</title>
+    <style>
+      body { font-family: sans-serif; max-width: 440px; margin: 40px auto; padding: 0 16px; }
+      label { display: block; margin-top: 16px; }
+      input { box-sizing: border-box; width: 100%; padding: 10px; margin-top: 6px; }
+      button { margin-top: 20px; padding: 10px 16px; }
+      .error { color: #a11; margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>เข้าสู่ระบบ</h1>
+      <form id="login-form">
+        <label for="identifier">ชื่อผู้ใช้ / อีเมล / รหัสนักศึกษา (ตามประเภทผู้ใช้)</label>
+        <input id="identifier" name="identifier" autocomplete="username" required />
+        <label for="password">รหัสผ่าน</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+        <button type="submit">เข้าสู่ระบบ</button>
+      </form>
+      <p id="login-error" class="error" role="alert" aria-live="assertive" hidden></p>
+    </main>
+    <script>
+      const form = document.getElementById("login-form");
+      const errorMessage = document.getElementById("login-error");
+
+      // FR-สมัครสมาชิก-/-เข้าสู่ระบบ-02, AC-สมัครสมาชิก-/-เข้าสู่ระบบ-03, ASM-03
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        errorMessage.hidden = true;
+
+        const values = new FormData(form);
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: values.get("identifier"),
+            password: values.get("password"),
+          }),
+        });
+        const result = await response.json();
+
+        if (!result.success) {
+          errorMessage.textContent = result.message;
+          errorMessage.hidden = false;
+          return;
+        }
+
+        window.location.assign(result.redirect);
+      });
+    </script>
+  </body>
+</html>

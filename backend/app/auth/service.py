@@ -25,6 +25,7 @@ USERS: list[User] = [
         email="s12345@university.ac.th",
         student_id="STU-001",
         password_hash=hash_password("pass1234"),
+        user_type="student",
         role="student",
         permissions=("view_profile", "borrow_book"),
     ),
@@ -33,6 +34,7 @@ USERS: list[User] = [
         email="admin@university.ac.th",
         student_id="ADM-001",
         password_hash=hash_password("admin123"),
+        user_type="staff",
         role="admin",
         permissions=("manage_users", "manage_books"),
     ),
@@ -57,14 +59,30 @@ def _find_user(identifier: str | None) -> User | None:
         return None
     key = identifier.strip().lower()
     for user in USERS:
-        if user.username.lower() == key or user.email.lower() == key or user.student_id.lower() == key:
+        if (
+            user.username.lower() == key
+            or user.email.lower() == key
+            or (user.student_id is not None and user.student_id.lower() == key)
+        ):
+            return user
+    return None
+
+
+def _find_login_user(identifier: str | None) -> User | None:
+    if not identifier:
+        return None
+    key = identifier.strip().lower()
+    for user in USERS:
+        if user.username.lower() == key or user.email.lower() == key:
+            return user
+        if user.user_type == "student" and user.student_id and user.student_id.lower() == key:
             return user
     return None
 
 
 def login_user(username: str | None = None, password: str | None = None, email: str | None = None) -> dict[str, Any]:
     identifier = (username or email or "").strip()
-    user = _find_user(identifier)
+    user = _find_login_user(identifier)
     if not user or not password or not verify_password(password, user.password_hash):
         return {
             "success": False,
@@ -95,6 +113,7 @@ def reset_password(student_id: str | None = None, new_password: str | None = Non
             email=user.email,
             student_id=user.student_id,
             password_hash=hash_password(new_password),
+            user_type=user.user_type,
             role=user.role,
             permissions=user.permissions,
         )
