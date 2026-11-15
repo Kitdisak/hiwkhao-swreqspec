@@ -1,66 +1,70 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
-from .models import BOOKS, Book
+from .models import BOOKS, CatalogRecord
 
 
 def _normalize(value: str | None) -> str:
-    return (value or "").strip().lower()
+    return (value or "").strip().casefold()
 
 
-def _matches_query(book: Book, query: str) -> bool:
-    if not query:
-        return True
+def _matches_query(record: CatalogRecord, query: str) -> bool:
+    """จับคู่คำค้นบางส่วนกับฟิลด์ค้นหาที่กำหนด (FR-ค้นหาหนังสือ-01, ASM-01)."""
+
     needle = _normalize(query)
-    haystacks = [
-        book.title,
-        *book.authors,
-        book.isbn,
-        *book.keywords,
+    if not needle:
+        return True
+
+    searchable_values = [
+        record.title,
+        *record.authors,
+        record.isbn,
+        *record.keywords,
     ]
-    return any(needle in _normalize(item) for item in haystacks)
+    return any(needle in _normalize(value) for value in searchable_values)
+
+
+def _matches_all_values(selected: Sequence[str], available: Sequence[str]) -> bool:
+    """ต้องตรงกับค่าทุกค่าที่เลือกในตัวกรอง (FR-ค้นหาหนังสือ-03, ASM-03)."""
+
+    normalized_values = [_normalize(value) for value in selected if _normalize(value)]
+    normalized_available = [_normalize(value) for value in available]
+    return all(
+        any(value in candidate for candidate in normalized_available)
+        for value in normalized_values
+    )
 
 
 def search_books(
     query: str | None = None,
     *,
+    categories: Sequence[str] | None = None,
+    authors: Sequence[str] | None = None,
     category: str | None = None,
     author: str | None = None,
-    search_type: str | None = None,
 ) -> list[dict[str, Any]]:
-    normalized_query = _normalize(query)
-    filtered: list[Book] = []
-    for book in BOOKS:
-        if normalized_query:
-            if search_type:
-                st = search_type.lower()
-                if st == "title" and normalized_query not in _normalize(book.title):
-                    continue
-                if st == "author" and not any(normalized_query in _normalize(person) for person in book.authors):
-                    continue
-                if st == "isbn" and normalized_query not in _normalize(book.isbn):
-                    continue
-                if st == "keyword" and not any(normalized_query in _normalize(keyword) for keyword in book.keywords):
-                    continue
-                if st not in {"title", "author", "isbn", "keyword"} and not _matches_query(book, normalized_query):
-                    continue
-            elif not _matches_query(book, normalized_query):
-                continue
+    """ค้นหาและกรองระเบียนหนังสือ (FR-ค้นหาหนังสือ-01, FR-ค้นหาหนังสือ-03)."""
 
-        if category and _normalize(category) not in _normalize(book.ddc_category):
-            continue
-        if author and not any(_normalize(author) in _normalize(person) for person in book.authors):
-            continue
-        filtered.append(book)
+    selected_categories = [*(categories or []), *([category] if category else [])]
+    selected_authors = [*(authors or []), *([author] if author else [])]
 
-    return [
-        {
-            "title": book.title,
-            "authors": book.authors,
-            "isbn": book.isbn,
-            "item_identifier": book.item_identifier,
-            "ddc_category": book.ddc_category,
-        }
-        for book in filtered
-    ]
+    results = []
+    for record in BOOKS:
+        if not _matches_query(record, query or ""):
+            continue
+
+        category_values = [
+            value
+            for category_item in record.categories
+            for value in (category_item.code, category_item.label)
+        ]
+        if not _matches_all_values(selected_categories, category_values):
+            continue
+        if not _matches_all_values(selected_authors, record.authors):
+            continue
+
+        results.append(record.to_dict())
+
+    return results

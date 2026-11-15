@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Body, FastAPI, Query
-from fastapi.responses import JSONResponse
+from fastapi import Body, FastAPI, HTTPException, Query
 
 from .auth.service import login_user, reset_password
+from .book_details.service import get_book_details
 from .book_search.service import search_books
 
 app = FastAPI(title="Library Search API")
@@ -36,18 +36,27 @@ def password_reset_endpoint(payload: dict[str, Any] = Body(default_factory=dict)
 @app.get("/api/books/search")
 def search_books_endpoint(
     query: str | None = Query(default=None, alias="query"),
-    category: str | None = Query(default=None),
-    author: str | None = Query(default=None),
-    search_type: str | None = Query(default=None, alias="searchType"),
+    category: list[str] | None = Query(default=None),
+    author: list[str] | None = Query(default=None),
 ) -> dict[str, Any]:
+    """ค้นหาหนังสือและคืนข้อความเมื่อไม่พบผลลัพธ์ (FR-ค้นหาหนังสือ-01, FR-ค้นหาหนังสือ-02, FR-ค้นหาหนังสือ-03)."""
+
     results = search_books(
         query=query,
-        category=category,
-        author=author,
-        search_type=search_type,
+        categories=category,
+        authors=author,
     )
 
     if not results:
-        return JSONResponse(content={"results": [], "message": "ไม่พบหนังสือที่ค้นหา"})
+        return {"results": [], "message": "ไม่พบหนังสือที่ค้นหา"}
 
     return {"results": results, "message": None}
+
+
+@app.get("/api/books/{book_id}")
+def book_details_endpoint(book_id: str) -> dict[str, Any]:
+    """แสดงรายละเอียดที่มีอยู่ของหนังสือที่เลือก (FR-ดูรายละเอียดและตำแหน่งหนังสือ-01 ถึง FR-ดูรายละเอียดและตำแหน่งหนังสือ-05)."""
+    details = get_book_details(book_id)
+    if details is None:
+        raise HTTPException(status_code=404, detail="ไม่พบหนังสือที่เลือก")
+    return details
