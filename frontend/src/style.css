@@ -183,6 +183,24 @@ input {
   overflow-wrap: anywhere;
 }
 
+.copy-list {
+  margin-top: 20px;
+}
+
+.copy-list ul {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.copy-list li {
+  padding: 12px;
+  border: 1px solid #e0e6ed;
+  border-radius: 8px;
+}
+
 .feedback {
   padding: 14px 16px;
   border-radius: 8px;

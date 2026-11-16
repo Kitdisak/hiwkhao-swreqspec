@@ -68,6 +68,10 @@ def _find_user(identifier: str | None) -> User | None:
     return None
 
 
+def find_user_by_username(username: str) -> User | None:
+    return next((user for user in USERS if user.username == username), None)
+
+
 def _find_login_user(identifier: str | None) -> User | None:
     if not identifier:
         return None
@@ -116,6 +120,11 @@ def reset_password(student_id: str | None = None, new_password: str | None = Non
             user_type=user.user_type,
             role=user.role,
             permissions=user.permissions,
+            account_status=user.account_status,
+            overdue_count=user.overdue_count,
+            unpaid_fine_count=user.unpaid_fine_count,
+            first_name=user.first_name,
+            last_name=user.last_name,
         )
         for index, current in enumerate(USERS):
             if current.username == user.username:

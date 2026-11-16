@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -16,15 +17,17 @@ class Category:
 
 @dataclass(frozen=True)
 class BookCopy:
-    """ตัวเล่มที่มีรหัสประจำเล่มไม่ซ้ำกัน (DOM-OPAC-05)."""
+    """ตัวเล่มที่มีรหัสและสถานะของตนเอง (DOM-OPAC-05, FR-ดูรายละเอียดและตำแหน่งหนังสือ-02)."""
 
     book_id: str
     item_identifier: str
+    status: str | None = None
+    expected_return_date: str | None = None
 
 
 @dataclass(frozen=True)
 class CatalogRecord:
-    """ระเบียนหนังสือสำหรับค้นหาและกรอง (FR-ค้นหาหนังสือ-01, FR-ค้นหาหนังสือ-03)."""
+    """ระเบียนชื่อเรื่องสำหรับค้นหาและแสดงรายละเอียด (FR-ค้นหาหนังสือ-01, FR-ดูรายละเอียดและตำแหน่งหนังสือ-01)."""
 
     book_id: str
     title: str = ""
@@ -33,11 +36,9 @@ class CatalogRecord:
     keywords: list[str] = field(default_factory=list)
     categories: list[Category] = field(default_factory=list)
     copies: list[BookCopy] = field(default_factory=list)
-    status: str | None = None
     shelf: str | None = None
     zone: str | None = None
     call_number: str | None = None
-    expected_return_date: str | None = None
 
     def to_dict(self) -> dict:
         """คืนข้อมูลรายการค้นหาพร้อมรหัสทุกตัวเล่ม (FR-ค้นหาหนังสือ-01, ASM-08)."""
@@ -53,7 +54,7 @@ class CatalogRecord:
 
     def to_detail_dict(self) -> dict:
         """คืนเฉพาะฟิลด์รายละเอียดที่มีอยู่ (FR-ดูรายละเอียดและตำแหน่งหนังสือ-01 ถึง FR-ดูรายละเอียดและตำแหน่งหนังสือ-05)."""
-        details = {"book_id": self.book_id}
+        details: dict[str, Any] = {"book_id": self.book_id}
         if self.title:
             details["title"] = self.title
         available_authors = [author for author in self.authors if author]
@@ -69,13 +70,23 @@ class CatalogRecord:
         if available_categories:
             details["categories"] = available_categories
 
-        for field_name in ("status", "shelf", "zone", "call_number"):
+        for field_name in ("shelf", "zone", "call_number"):
             value = getattr(self, field_name)
             if value:
                 details[field_name] = value
 
-        if self.status == "Borrowed" and self.expected_return_date:
-            details["expected_return_date"] = self.expected_return_date
+        copies = []
+        for copy in self.copies:
+            copy_details: dict[str, str] = {}
+            if copy.item_identifier:
+                copy_details["item_identifier"] = copy.item_identifier
+            if copy.status:
+                copy_details["status"] = copy.status
+            if copy.status == "Borrowed" and copy.expected_return_date:
+                copy_details["expected_return_date"] = copy.expected_return_date
+            copies.append(copy_details)
+        if copies:
+            details["copies"] = copies
         return details
 
 

@@ -43,6 +43,11 @@ class User:
     user_type: Literal["student", "staff", "external"]
     role: str = "student"
     permissions: tuple[str, ...] = field(default_factory=tuple)
+    account_status: Literal["Active", "Suspended"] = "Active"
+    overdue_count: int = 0
+    unpaid_fine_count: int = 0
+    first_name: str = ""
+    last_name: str = ""
 
     def to_dict(self) -> dict[str, str | tuple[str, ...] | None]:
         return {
@@ -51,4 +56,5 @@ class User:
             "student_id": self.student_id,
             "role": self.role,
             "permissions": self.permissions,
+            "account_status": self.account_status,
         }

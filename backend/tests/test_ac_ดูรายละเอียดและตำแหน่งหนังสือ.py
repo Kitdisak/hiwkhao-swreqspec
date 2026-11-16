@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.book_details import service
-from app.book_search.models import CatalogRecord, Category
+from app.book_search.models import BookCopy, CatalogRecord, Category
 
 client = TestClient(app)
 
@@ -14,32 +14,100 @@ def test_AC_ดูรายละเอียดและตำแหน่ง�
         authors=["ผู้แต่งทดสอบ"],
         isbn="9780000000000",
         categories=[Category(code="005.1", label="หมวดทดสอบ")],
-        status="Available",
-        shelf="ชั้น 2",
-        zone="โซน A",
+        shelf="2",
+        zone="A",
         call_number="005.1 ก123",
+        copies=[
+            BookCopy(
+                book_id="BOOK-DETAIL",
+                item_identifier="COPY-001",
+                status="Available",
+            ),
+            BookCopy(
+                book_id="BOOK-DETAIL",
+                item_identifier="COPY-002",
+                status="Borrowed",
+                expected_return_date="2026-12-01",
+            ),
+            BookCopy(
+                book_id="BOOK-DETAIL",
+                item_identifier="COPY-003",
+                status="Reserved",
+            ),
+            BookCopy(
+                book_id="BOOK-DETAIL",
+                item_identifier="COPY-004",
+                status="Lost",
+            ),
+            BookCopy(
+                book_id="BOOK-DETAIL",
+                item_identifier="COPY-005",
+                status="Damaged",
+            ),
+            BookCopy(
+                book_id="BOOK-DETAIL",
+                item_identifier="COPY-006",
+                status="อยู่ระหว่างซ่อม",
+            ),
+        ],
     )
     monkeypatch.setattr(service, "BOOKS", [record])
 
     response = client.get("/api/books/BOOK-DETAIL")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     assert response.json() == {
         "book_id": "BOOK-DETAIL",
         "title": "หนังสือรายละเอียด",
         "authors": ["ผู้แต่งทดสอบ"],
         "isbn": "9780000000000",
         "categories": [{"code": "005.1", "label": "หมวดทดสอบ"}],
-        "status": "Available",
-        "shelf": "ชั้น 2",
-        "zone": "โซน A",
+        "shelf": "2",
+        "zone": "A",
         "call_number": "005.1 ก123",
+        "copies": [
+            {"item_identifier": "COPY-001", "status": "Available"},
+            {
+                "item_identifier": "COPY-002",
+                "status": "Borrowed",
+                "expected_return_date": "2026-12-01",
+            },
+            {"item_identifier": "COPY-003", "status": "Reserved"},
+            {"item_identifier": "COPY-004", "status": "Lost"},
+            {"item_identifier": "COPY-005", "status": "Damaged"},
+            {"item_identifier": "COPY-006", "status": "อยู่ระหว่างซ่อม"},
+        ],
     }
+
+    record.copies[0] = BookCopy(
+        book_id="BOOK-DETAIL",
+        item_identifier="COPY-001",
+        status="Lost",
+    )
+    refreshed_response = client.get("/api/books/BOOK-DETAIL")
+
+    assert refreshed_response.status_code == 200
+    assert refreshed_response.json()["copies"][0]["status"] == "Lost"
 
 
 def test_AC_ดูรายละเอียดและตำแหน่งหนังสือ_02_แสดงเฉพาะข้อมูลที่มี(monkeypatch):
-    record = CatalogRecord(book_id="BOOK-PARTIAL", title="ข้อมูลบางส่วน")
-    monkeypatch.setattr(service, "BOOKS", [record])
+    record = CatalogRecord(
+        book_id="BOOK-PARTIAL",
+        title="ข้อมูลบางส่วน",
+        authors=["", "ผู้แต่งที่มีข้อมูล"],
+        categories=[
+            Category(code="", label="หมวดที่มีข้อมูล"),
+            Category(code="", label=""),
+        ],
+        shelf="2",
+        call_number="005.13 ส123ก",
+        copies=[
+            BookCopy(book_id="BOOK-PARTIAL", item_identifier="COPY-NO-STATUS"),
+        ],
+    )
+    book_without_copies = CatalogRecord(book_id="BOOK-NO-COPIES", title="ไม่มีตัวเล่ม")
+    monkeypatch.setattr(service, "BOOKS", [record, book_without_copies])
 
     response = client.get("/api/books/BOOK-PARTIAL")
 
@@ -47,38 +115,61 @@ def test_AC_ดูรายละเอียดและตำแหน่ง�
     assert response.json() == {
         "book_id": "BOOK-PARTIAL",
         "title": "ข้อมูลบางส่วน",
+        "authors": ["ผู้แต่งที่มีข้อมูล"],
+        "categories": [{"code": "", "label": "หมวดที่มีข้อมูล"}],
+        "shelf": "2",
+        "call_number": "005.13 ส123ก",
+        "copies": [{"item_identifier": "COPY-NO-STATUS"}],
     }
 
+    no_copies_response = client.get("/api/books/BOOK-NO-COPIES")
+    assert no_copies_response.status_code == 200
+    assert "copies" not in no_copies_response.json()
 
-def test_AC_ดูรายละเอียดและตำแหน่งหนังสือ_03_แสดงวันคาดว่าจะคืน(monkeypatch):
+
+def test_AC_ดูรายละเอียดและตำแหน่งหนังสือ_03_วันคืนแสดงเฉพาะ_Copy_Borrowed(monkeypatch):
     record = CatalogRecord(
-        book_id="BOOK-BORROWED",
-        status="Borrowed",
-        expected_return_date="2026-12-01",
+        book_id="BOOK-COPY-RETURNS",
+        copies=[
+            BookCopy(
+                book_id="BOOK-COPY-RETURNS",
+                item_identifier="COPY-BORROWED-DATE",
+                status="Borrowed",
+                expected_return_date="2026-12-01",
+            ),
+            BookCopy(
+                book_id="BOOK-COPY-RETURNS",
+                item_identifier="COPY-BORROWED-NO-DATE",
+                status="Borrowed",
+            ),
+            BookCopy(
+                book_id="BOOK-COPY-RETURNS",
+                item_identifier="COPY-AVAILABLE-DATE",
+                status="Available",
+                expected_return_date="2026-12-02",
+            ),
+        ],
     )
     monkeypatch.setattr(service, "BOOKS", [record])
 
-    response = client.get("/api/books/BOOK-BORROWED")
+    response = client.get("/api/books/BOOK-COPY-RETURNS")
 
     assert response.status_code == 200
-    assert response.json()["expected_return_date"] == "2026-12-01"
-
-
-def test_ไม่แสดงวันคาดว่าจะคืนเมื่อไม่ได้ยืมหรือไม่มีวันที่(monkeypatch):
-    records = [
-        CatalogRecord(
-            book_id="BOOK-AVAILABLE",
-            status="Available",
-            expected_return_date="2026-12-01",
-        ),
-        CatalogRecord(book_id="BOOK-NO-DATE", status="Borrowed"),
+    assert response.json()["copies"] == [
+        {
+            "item_identifier": "COPY-BORROWED-DATE",
+            "status": "Borrowed",
+            "expected_return_date": "2026-12-01",
+        },
+        {
+            "item_identifier": "COPY-BORROWED-NO-DATE",
+            "status": "Borrowed",
+        },
+        {
+            "item_identifier": "COPY-AVAILABLE-DATE",
+            "status": "Available",
+        },
     ]
-    monkeypatch.setattr(service, "BOOKS", records)
-
-    for book_id in ("BOOK-AVAILABLE", "BOOK-NO-DATE"):
-        response = client.get(f"/api/books/{book_id}")
-        assert response.status_code == 200
-        assert "expected_return_date" not in response.json()
 
 
 def test_รายละเอียดหนังสือที่ไม่มีอยู่คืน_not_found(monkeypatch):
