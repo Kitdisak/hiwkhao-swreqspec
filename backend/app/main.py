@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
@@ -16,8 +18,30 @@ from .auth.service import login_user, reset_password
 from .book_details.service import get_book_details
 from .book_search.service import search_books
 from .reservations.service import ReservationError, reserve_book
+from .fine_payment import service as fine_payment_service
+from .renew_loan.service import get_member_loans, renew_loan
 
-app = FastAPI(title="Library Search API")
+
+async def _poll_payment_statuses() -> None:
+    while True:
+        await asyncio.to_thread(fine_payment_service.poll_pending_requests)
+        await asyncio.sleep(300)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    polling_task = asyncio.create_task(_poll_payment_statuses())
+    try:
+        yield
+    finally:
+        polling_task.cancel()
+        try:
+            await polling_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Library API", lifespan=lifespan)
 
 
 class ReservationRequest(BaseModel):
@@ -129,3 +153,77 @@ def create_reservation_endpoint(
                 "message": error.message,
             },
         )
+@app.get("/api/loans")
+def list_loans_endpoint(member_id: str | None = Query(default=None, alias="member_id")) -> dict[str, Any]:
+    """แสดงรายการยืมที่เปิดอยู่สำหรับสมาชิก (FR-ต่ออายุการยืมหนังสือ-01)."""
+    return {"loans": get_member_loans(member_id)}
+
+
+@app.get("/api/members/{member_id}/loans")
+def member_loans_endpoint(member_id: str) -> dict[str, Any]:
+    return {"member_id": member_id, "loans": get_member_loans(member_id)}
+
+
+@app.post("/api/loans/{loan_id}/renew")
+def renew_loan_endpoint(
+    loan_id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    """ส่งคำขอต่ออายุหนังสือและคืนผลตามเงื่อนไข (FR-ต่ออายุการยืมหนังสือ-02 ถึง FR-ต่ออายุการยืมหนังสือ-05)."""
+    member_id = payload.get("member_id") or payload.get("memberId") or payload.get("user_id")
+    member_type = payload.get("member_type") or payload.get("memberType")
+    renewed_by = payload.get("renewed_by") or payload.get("renewedBy") or member_id
+
+    result = renew_loan(
+        loan_id=loan_id,
+        member_id=member_id,
+        member_type=member_type,
+        renewed_by=renewed_by,
+    )
+    return result
+
+
+@app.get("/api/me/fines")
+def member_fines_endpoint(
+    member_id: str = Query(default=fine_payment_service.DEMO_MEMBER_ID, alias="member_id"),
+) -> dict[str, Any]:
+    """แสดงรายการค่าปรับค้างและยอดรวม (FR-ชำระค่าปรับออนไลน์-01)."""
+    return fine_payment_service.list_member_fines(member_id)
+
+
+@app.post("/api/payments")
+def start_payment_endpoint(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """สร้างคำขอชำระและส่งไปยัง Gateway (FR-ชำระค่าปรับออนไลน์-02, FR-ชำระค่าปรับออนไลน์-05)."""
+    member_id = payload.get("member_id") or fine_payment_service.DEMO_MEMBER_ID
+    channel = payload.get("channel")
+    try:
+        return fine_payment_service.start_payment(member_id=member_id, channel=channel or "")
+    except fine_payment_service.PaymentDomainError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+
+
+@app.post("/api/payments/result")
+def gateway_payment_result_endpoint(
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    """ตรวจผล callback ผ่าน adapter ก่อนอัปเดตสถานะ (FR-ชำระค่าปรับออนไลน์-02, FR-ชำระค่าปรับออนไลน์-03, NFR-REL-01)."""
+    try:
+        return fine_payment_service.handle_gateway_callback(payload)
+    except fine_payment_service.PaymentDomainError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+
+
+@app.post("/api/payments/{payment_ref}/status-check")
+def payment_status_check_endpoint(
+    payment_ref: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    """ตรวจสถานะคำขอเดิมโดยใช้ payment_ref เดิม (FR-ชำระค่าปรับออนไลน์-04)."""
+    member_id = payload.get("member_id") or fine_payment_service.DEMO_MEMBER_ID
+    try:
+        return fine_payment_service.check_payment_status(
+            payment_ref,
+            member_id=member_id,
+        )
+    except fine_payment_service.PaymentDomainError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error

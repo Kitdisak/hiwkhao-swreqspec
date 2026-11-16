@@ -118,6 +118,7 @@ export default function SearchPage() {
         <p className="eyebrow">ห้องสมุด</p>
         <h1>ค้นหาหนังสือ</h1>
         <p>ค้นหาด้วยชื่อหนังสือ ผู้แต่ง ISBN หรือคำสำคัญ</p>
+        <a className="feature-link" href="/fines">ชำระค่าปรับ</a>
       </header>
 
       <form className="search-panel" onSubmit={submitSearch}>
