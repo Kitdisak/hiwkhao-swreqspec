@@ -122,6 +122,9 @@ export default function SearchPage() {
         <a className="feature-link" href="/rooms/availability">
           ตรวจสอบห้องว่าง
         </a>
+        <a className="feature-link" href="/my-reservations">
+          รายการจองของฉัน
+        </a>
       </header>
 
       <form className="search-panel" onSubmit={submitSearch}>

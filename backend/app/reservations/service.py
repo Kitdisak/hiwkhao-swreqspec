@@ -45,6 +45,7 @@ def _connect() -> sqlite3.Connection:
             title_id TEXT NOT NULL,
             recorded_at TEXT NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('Waiting', 'Ready', 'Completed')),
+            pickup_deadline TEXT,
             queue_position_at_success INTEGER NOT NULL,
             first_name TEXT NOT NULL,
             last_name TEXT NOT NULL,
@@ -55,6 +56,11 @@ def _connect() -> sqlite3.Connection:
         WHERE status IN ('Waiting', 'Ready');
         """
     )
+    columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(reservations)")
+    }
+    if "pickup_deadline" not in columns:
+        connection.execute("ALTER TABLE reservations ADD COLUMN pickup_deadline TEXT")
     return connection
 
 
@@ -269,6 +275,51 @@ def _success_result(row: sqlite3.Row) -> dict[str, Any]:
         "queue_position": queue_position,
         "message": f"จองสำเร็จ ลำดับคิวที่ {queue_position}",
     }
+
+
+def list_reservations_for_member(member: User) -> list[dict[str, Any]]:
+    """อ่านรายการล่าสุดของสมาชิกและคำนวณคิว Waiting ใหม่
+    (FR-ติดตามสถานะการจองหนังสือ-01 ถึง FR-ติดตามสถานะการจองหนังสือ-03, NFR-ACC-01, ASM-08, ASM-09).
+    """
+    connection = _connect()
+    try:
+        connection.execute("BEGIN")
+        rows = connection.execute(
+            "SELECT * FROM reservations WHERE member_id = ?",
+            (_member_id(member),),
+        ).fetchall()
+        reservations = []
+        for row in rows:
+            record = _catalog_record(row["title_id"])
+            if record is None:
+                raise ReservationError(
+                    404,
+                    "reservation_title_not_found",
+                    "ไม่พบข้อมูลชื่อหนังสือของรายการจอง",
+                )
+            reservations.append(
+                {
+                    "reservation_id": row["reservation_id"],
+                    "title": record.title,
+                    "authors": [author for author in record.authors if author],
+                    "recorded_at": row["recorded_at"],
+                    "status": row["status"],
+                    "queue_position": (
+                        _current_queue_position(connection, row)
+                        if row["status"] == "Waiting"
+                        else None
+                    ),
+                    "pickup_deadline": (
+                        row["pickup_deadline"]
+                        if row["status"] == "Ready"
+                        else None
+                    ),
+                }
+            )
+        connection.commit()
+        return reservations
+    finally:
+        connection.close()
 
 
 def list_reservations_for_testing() -> list[dict[str, Any]]:

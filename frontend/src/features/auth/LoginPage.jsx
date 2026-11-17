@@ -3,11 +3,14 @@ import { useState } from "react";
 // จำกัด return path ให้กลับสู่ขั้นตอนจองเดิมหลังเข้าสู่ระบบ (ASM-06, AC-จองห้องอ่านหนังสือ-/-ห้องประชุม-01).
 function getReturnTo() {
   const candidate = new URLSearchParams(window.location.search).get("returnTo");
+  const isRoomReservation =
+    candidate === "/rooms/reservations/new" ||
+    candidate?.startsWith("/rooms/reservations/new?");
+  const isMyReservations = candidate === "/my-reservations";
   if (
     !candidate ||
     candidate.startsWith("//") ||
-    (candidate !== "/rooms/reservations/new" &&
-      !candidate.startsWith("/rooms/reservations/new?"))
+    (!isRoomReservation && !isMyReservations)
   ) {
     return "/";
   }
@@ -15,7 +18,9 @@ function getReturnTo() {
   const destination = new URL(candidate, window.location.origin);
   if (
     destination.origin !== window.location.origin ||
-    destination.pathname !== "/rooms/reservations/new"
+    (isRoomReservation &&
+      destination.pathname !== "/rooms/reservations/new") ||
+    (isMyReservations && destination.pathname !== "/my-reservations")
   ) {
     return "/";
   }
@@ -30,6 +35,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const returnTo = getReturnTo();
   const bookingLogin = returnTo.startsWith("/rooms/reservations/new");
+  const reservationTrackingLogin = returnTo === "/my-reservations";
 
   async function submitLogin(event) {
     event.preventDefault();
@@ -69,6 +75,11 @@ export default function LoginPage() {
       {bookingLogin && (
         <p className="feedback" role="status">
           กรุณาเข้าสู่ระบบก่อนจองห้อง
+        </p>
+      )}
+      {reservationTrackingLogin && (
+        <p className="feedback" role="status">
+          กรุณาเข้าสู่ระบบก่อนดูรายการจอง
         </p>
       )}
 

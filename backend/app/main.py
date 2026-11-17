@@ -20,7 +20,11 @@ from .auth.session import (
 from .auth.service import login_user, reset_password
 from .book_details.service import get_book_details
 from .book_search.service import search_books
-from .reservations.service import ReservationError, reserve_book
+from .reservations.service import (
+    ReservationError,
+    list_reservations_for_member,
+    reserve_book,
+)
 from .fine_payment import service as fine_payment_service
 from .renew_loan.service import get_member_loans, renew_loan
 from .rooms import availability as room_availability
@@ -527,6 +531,37 @@ def create_reservation_endpoint(
                 "message": error.message,
             },
         )
+
+
+@app.get("/api/me/reservations")
+def list_my_reservations_endpoint(request: Request, response: Response) -> Any:
+    """แสดงรายการจองของผู้ใช้และสถานะล่าสุด (FR-ติดตามสถานะการจองหนังสือ-01 ถึง FR-ติดตามสถานะการจองหนังสือ-03, NFR-ACC-01)."""
+    response.headers["Cache-Control"] = "no-store"
+    member = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if member is None:
+        return JSONResponse(
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบก่อนดูรายการจอง",
+            },
+        )
+    try:
+        return {"reservations": list_reservations_for_member(member)}
+    except ReservationError as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+
 @app.get("/api/loans")
 def list_loans_endpoint(member_id: str | None = Query(default=None, alias="member_id")) -> dict[str, Any]:
     """แสดงรายการยืมที่เปิดอยู่สำหรับสมาชิก (FR-ต่ออายุการยืมหนังสือ-01)."""
