@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -20,6 +22,8 @@ from .book_search.service import search_books
 from .reservations.service import ReservationError, reserve_book
 from .fine_payment import service as fine_payment_service
 from .renew_loan.service import get_member_loans, renew_loan
+from .rooms import availability as room_availability
+from .rooms import store as room_store
 
 
 async def _poll_payment_statuses() -> None:
@@ -52,6 +56,74 @@ class ReservationRequest(BaseModel):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/rooms/availability")
+def room_availability_endpoint(
+    search_date: date = Query(alias="date"),
+    room_type: str = Query(min_length=1),
+    user_count: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """ค้นหาห้องและช่วงเวลาว่างโดยอ้างอิงรายการจองเดิม (FR-ตรวจสอบห้องว่าง-01 ถึง FR-ตรวจสอบห้องว่าง-04)."""
+    try:
+        parsed_user_count = room_availability.parse_user_count(user_count)
+    except room_availability.InvalidUserCount:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "rooms": [],
+                "message": "กรุณาระบุจำนวนผู้ใช้งานเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป",
+                "code": "invalid_user_count",
+            },
+        )
+
+    now = datetime.now(ZoneInfo("Asia/Bangkok"))
+    try:
+        room_availability.validate_search_date(search_date, now)
+    except room_availability.InvalidSearchDate:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "rooms": [],
+                "message": "เลือกวันที่ตั้งแต่วันนี้เป็นต้นไป",
+                "code": "date_before_today",
+            },
+        )
+
+    try:
+        results = room_availability.calculate_availability(
+            rooms=room_store.get_rooms(),
+            bookings=room_store.get_room_bookings(),
+            selected_date=search_date,
+            room_type=room_type,
+            user_count=parsed_user_count,
+            now=now,
+        )
+    except room_availability.InvalidSearchDate as error:
+        raise HTTPException(
+            status_code=422,
+            detail="เลือกวันที่ตั้งแต่วันนี้เป็นต้นไป",
+        ) from error
+
+    rooms = [
+        {
+            "room_id": room.room_id,
+            "room_type": room.room_type,
+            "capacity": room.capacity,
+            "available_slots": [
+                {
+                    "start_time": slot.start_time.isoformat(),
+                    "end_time": slot.end_time.isoformat(),
+                }
+                for slot in room.available_slots
+            ],
+        }
+        for room in results
+    ]
+    return {
+        "rooms": rooms,
+        "message": None if rooms else "ไม่มีห้องว่าง",
+    }
 
 
 @app.post("/api/auth/login")

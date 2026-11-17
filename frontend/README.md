@@ -4,6 +4,8 @@
 
 หน้ารายละเอียดหนังสืออยู่ใน `src/features/book_details/` และเปิดจากรายการค้นหาที่ `/books/{bookId}`; ข้อมูลชื่อเรื่องและตำแหน่งแสดงครั้งเดียว ส่วนรหัสประจำเล่ม สถานะ และวันคาดว่าจะคืน (เมื่อ Copy เป็น Borrowed และมีวันที่) แสดงแยกตาม Copy
 
+หน้าตรวจสอบห้องว่างอยู่ใน `src/features/rooms/` และเปิดได้ที่ `/rooms/availability`; ใช้ `GET /api/rooms/availability` เพื่อค้นหาตามวันที่ ประเภทห้อง และจำนวนผู้ใช้งาน (ไม่บังคับ)
+
 ## เริ่มใช้งาน
 
 1. เริ่ม backend จาก root ของ repo ด้วย `uvicorn app.main:app --app-dir backend --reload` (เลือกโดยทีม ไม่ได้มาจาก spec)

@@ -22,3 +22,15 @@ PYTHONPATH=. python tests/perf_search.py
 ```
 
 สคริปต์ใช้ข้อมูล seed 4 ชื่อเรื่องและวัดเวลาตอบกลับ API ที่ 50 และ 200 requests พร้อมกัน โดย 3 วินาทีเป็นเป้าหมาย ไม่ใช่เกณฑ์ผ่าน/ตก ทั้งนี้การวัดนี้ไม่รวมเวลาแสดงผลใน browser. ระบุ `--users 50` หรือ `--users 200` เพื่อวัดเฉพาะระดับเดียว.
+
+## วัดประสิทธิภาพการตรวจสอบห้องว่าง (NFR-PERF-01)
+
+เรียกจากโฟลเดอร์ `backend/`:
+
+```bash
+PYTHONPATH=. python tests/perf_room_availability.py
+```
+
+สคริปต์สร้าง API server ชั่วคราวและใช้ข้อมูลทดสอบ 50 ห้องกับ 36,000 รายการจองใน 60 วัน; ยิงคำขอพร้อมกัน 50 และ 200 ครั้งทั้งแบบไม่ใช้ตัวกรองและใช้ตัวกรอง 12 คนขึ้นไป. รายงานเปอร์เซ็นต์คำขอไม่เกิน 3 วินาที, p95, เวลาเฉลี่ย และเวลาสูงสุด; การวัดสิ้นสุดเมื่อรับและตรวจสอบ JSON response ครบ และไม่รวม browser rendering ตามวิธีวัด API ของ SPEC-001 ASM-06. ค่า 3 วินาทีเป็นเป้าหมาย ไม่ใช่เกณฑ์ผ่าน/ตก.
+
+หากต้องการเปิดหน้าเว็บกับ fixture นี้เพื่อวัด browser rendering แยกจาก API ให้เริ่ม `PYTHONPATH=. python tests/perf_room_availability.py --serve-only` แล้วเปิด frontend; อีก terminal ใช้ `PYTHONPATH=. python tests/perf_room_availability.py --base-url http://127.0.0.1:8000` เพื่อยิงโหลดพร้อมกัน. หยุด fixture server ด้วย Ctrl+C.

@@ -16,7 +16,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -35,6 +36,15 @@ button:disabled {
 }
 
 input {
+  min-width: 0;
+  border: 1px solid #c8d2df;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: inherit;
+  background: #fff;
+}
+
+select {
   min-width: 0;
   border: 1px solid #c8d2df;
   border-radius: 8px;
@@ -74,6 +84,10 @@ input {
   font-weight: 700;
 }
 
+.feature-link + .feature-link {
+  margin-left: 12px;
+}
+
 .search-panel,
 .book-card {
   border: 1px solid #e0e6ed;
@@ -84,6 +98,70 @@ input {
 
 .search-panel {
   padding: 24px;
+}
+
+.availability-form {
+  display: grid;
+  gap: 20px;
+}
+
+.availability-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.availability-field {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.availability-field label {
+  font-weight: 700;
+}
+
+.availability-field label span,
+.availability-field small {
+  color: #5a6878;
+  font-weight: 400;
+}
+
+.availability-form > button {
+  justify-self: start;
+}
+
+.demo-notice {
+  color: #55420d;
+  background: #fff7dc;
+}
+
+.availability-results > h2 {
+  margin-bottom: 16px;
+}
+
+.availability-room h3 {
+  margin: 0 0 12px;
+}
+
+.availability-slots h4 {
+  margin: 16px 0 8px;
+}
+
+.availability-slots ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.availability-slots li {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #174b35;
+  background: #e7f5ed;
 }
 
 .search-panel > label {
@@ -289,6 +367,10 @@ input {
   }
 
   .filters {
+    grid-template-columns: 1fr;
+  }
+
+  .availability-fields {
     grid-template-columns: 1fr;
   }
 }

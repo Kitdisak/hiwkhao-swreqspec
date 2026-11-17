@@ -119,6 +119,9 @@ export default function SearchPage() {
         <h1>ค้นหาหนังสือ</h1>
         <p>ค้นหาด้วยชื่อหนังสือ ผู้แต่ง ISBN หรือคำสำคัญ</p>
         <a className="feature-link" href="/fines">ชำระค่าปรับ</a>
+        <a className="feature-link" href="/rooms/availability">
+          ตรวจสอบห้องว่าง
+        </a>
       </header>
 
       <form className="search-panel" onSubmit={submitSearch}>
