@@ -41,15 +41,35 @@ function isAvailabilityResponse(data) {
 }
 
 export default function AvailabilityPage() {
-  const [selectedDate, setSelectedDate] = useState("");
-  const [roomType, setRoomType] = useState("");
-  const [userCount, setUserCount] = useState("");
+  const [selectedDate, setSelectedDate] = useState(
+    () => new URLSearchParams(window.location.search).get("date") ?? "",
+  );
+  const [roomType, setRoomType] = useState(
+    () => new URLSearchParams(window.location.search).get("room_type") ?? "",
+  );
+  const [userCount, setUserCount] = useState(
+    () => new URLSearchParams(window.location.search).get("user_count") ?? "",
+  );
   const [rooms, setRooms] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const today = getBangkokToday();
+
+  // ส่งห้องและเงื่อนไขเดิมไปยังขั้นตอนจอง (FR-จองห้องอ่านหนังสือ-/-ห้องประชุม-01).
+  function getReservationHref(room) {
+    const params = new URLSearchParams({
+      room_id: room.room_id,
+      booking_date: selectedDate,
+      room_type: room.room_type,
+      capacity: room.capacity === null ? "" : String(room.capacity),
+    });
+    if (userCount) {
+      params.set("user_count", userCount);
+    }
+    return `/rooms/reservations/new?${params.toString()}`;
+  }
 
   async function submitSearch(event) {
     // FR-ตรวจสอบห้องว่าง-01 ถึง FR-ตรวจสอบห้องว่าง-04
@@ -219,6 +239,18 @@ export default function AvailabilityPage() {
                     ))}
                   </ul>
                 </div>
+                {Number.isInteger(room.capacity) ? (
+                  <a
+                    className="button-link"
+                    href={getReservationHref(room)}
+                  >
+                    เลือกห้องนี้เพื่อจอง
+                  </a>
+                ) : (
+                  <p className="feedback error-message" role="alert">
+                    ห้องนี้ไม่สามารถจองได้เนื่องจากไม่มีข้อมูลความจุ
+                  </p>
+                )}
               </article>
             ))}
           </>

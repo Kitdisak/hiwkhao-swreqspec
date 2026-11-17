@@ -1,10 +1,18 @@
+from _thread import LockType
+from contextlib import contextmanager
 from datetime import datetime, time
+from threading import Lock
+from typing import Iterator
+
 from zoneinfo import ZoneInfo
 
 from .models import Room, RoomBooking
 
 _BANGKOK = ZoneInfo("Asia/Bangkok")
 _demo_date = datetime.now(_BANGKOK).date()
+_ROOM_LOCKS: dict[str, LockType] = {}
+_ROOM_LOCKS_GUARD = Lock()
+_ROOM_BOOKINGS_GUARD = Lock()
 
 # ข้อมูล demo ไม่ใช่ข้อมูลจริงของห้องสมุด — ทีมเลือกเอง ไม่ได้มาจาก spec
 # ข้อมูลตัวอย่างรองรับการตรวจห้องและตารางจอง (FR-ตรวจสอบห้องว่าง-01, FR-ตรวจสอบห้องว่าง-02).
@@ -30,4 +38,23 @@ def get_rooms() -> list[Room]:
 
 def get_room_bookings() -> list[RoomBooking]:
     """อ่านรายการจองห้องที่มีอยู่โดยไม่เขียนหรือแก้ไขรายการ (FR-ตรวจสอบห้องว่าง-02)."""
-    return list(ROOM_BOOKINGS)
+    with _ROOM_BOOKINGS_GUARD:
+        return list(ROOM_BOOKINGS)
+
+
+@contextmanager
+def lock_room(room_id: str) -> Iterator[None]:
+    """ล็อกการตรวจและบันทึกรายการของห้องเดียวกันใน process นี้ (NFR-CONC-01)."""
+    with _ROOM_LOCKS_GUARD:
+        lock = _ROOM_LOCKS.get(room_id)
+        if lock is None:
+            lock = Lock()
+            _ROOM_LOCKS[room_id] = lock
+    with lock:
+        yield
+
+
+def add_room_booking(booking: RoomBooking) -> None:
+    """เพิ่มรายการจองลงใน store ร่วม (FR-จองห้องอ่านหนังสือ-/-ห้องประชุม-03)."""
+    with _ROOM_BOOKINGS_GUARD:
+        ROOM_BOOKINGS.append(booking)

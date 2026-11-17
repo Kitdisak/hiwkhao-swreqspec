@@ -15,13 +15,16 @@ class Room:
 
 @dataclass(frozen=True)
 class RoomBooking:
-    """Existing room booking used to calculate unavailable slots (FR-ตรวจสอบห้องว่าง-02)."""
+    """Room booking shared by availability and reservation flows (SPEC-008/009)."""
 
     booking_id: str
     room_id: str
     booking_date: date
     start_time: time
     end_time: time
+    request_id: str | None = None
+    member_id: str | None = None
+    user_count: int | None = None
 
 
 @dataclass(frozen=True)

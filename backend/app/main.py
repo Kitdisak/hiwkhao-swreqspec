@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, time
+from json import JSONDecodeError
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .auth.session import (
     SESSION_COOKIE,
@@ -23,6 +24,9 @@ from .reservations.service import ReservationError, reserve_book
 from .fine_payment import service as fine_payment_service
 from .renew_loan.service import get_member_loans, renew_loan
 from .rooms import availability as room_availability
+from .rooms import booking as room_booking
+from .rooms.config import DEFAULT_AVAILABILITY_CONFIG
+from .rooms.models import AvailabilitySlot, Room
 from .rooms import store as room_store
 
 
@@ -51,6 +55,48 @@ app = FastAPI(title="Library API", lifespan=lifespan)
 class ReservationRequest(BaseModel):
     title_id: str = Field(min_length=1, max_length=100)
     request_id: str = Field(min_length=1, max_length=200)
+
+
+class RoomReservationCheckRequest(BaseModel):
+    room_id: str = Field(min_length=1)
+    booking_date: date
+    start_time: time
+    end_time: time
+    user_count: Any = None
+
+
+class RoomReservationRequest(RoomReservationCheckRequest):
+    request_id: str = Field(min_length=1, max_length=200)
+
+
+def _get_room_available_slots(
+    room: Room,
+    booking_date: date,
+    user_count: int,
+    now: datetime,
+) -> tuple[AvailabilitySlot, ...]:
+    results = room_availability.calculate_availability(
+        rooms=[room],
+        bookings=room_store.get_room_bookings(),
+        selected_date=booking_date,
+        room_type=room.room_type,
+        user_count=user_count,
+        now=now,
+        config=DEFAULT_AVAILABILITY_CONFIG,
+    )
+    return results[0].available_slots if results else ()
+
+
+def _serialize_room_slots(
+    slots: tuple[AvailabilitySlot, ...],
+) -> list[dict[str, str]]:
+    return [
+        {
+            "start_time": slot.start_time.isoformat(timespec="minutes"),
+            "end_time": slot.end_time.isoformat(timespec="minutes"),
+        }
+        for slot in slots
+    ]
 
 
 @app.get("/health")
@@ -123,6 +169,262 @@ def room_availability_endpoint(
     return {
         "rooms": rooms,
         "message": None if rooms else "ไม่มีห้องว่าง",
+    }
+
+
+@app.post("/api/room-reservations/check", response_model=None)
+async def check_room_reservation_endpoint(
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    """ตรวจข้อมูลและความว่างโดยไม่สร้างรายการ (FR-จองห้องอ่านหนังสือ-/-ห้องประชุม-04, FR-จองห้องอ่านหนังสือ-/-ห้องประชุม-05)."""
+    if get_session_user(request.cookies.get(SESSION_COOKIE)) is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "available": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบก่อนจองห้อง",
+            },
+        )
+
+    try:
+        payload_data = await request.json()
+    except (JSONDecodeError, UnicodeDecodeError):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "available": False,
+                "code": "invalid_request",
+                "message": "ข้อมูลคำขอไม่ถูกต้อง",
+            },
+        )
+
+    try:
+        payload = RoomReservationCheckRequest.model_validate(payload_data)
+    except ValidationError as error:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "available": False,
+                "code": "invalid_request",
+                "message": "ข้อมูลคำขอไม่ถูกต้อง",
+                "errors": error.errors(),
+            },
+        )
+
+    room = next(
+        (
+            candidate
+            for candidate in room_store.get_rooms()
+            if candidate.room_id == payload.room_id
+        ),
+        None,
+    )
+    if room is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "available": False,
+                "code": "room_not_found",
+                "message": "ไม่พบห้องที่เลือก",
+            },
+        )
+
+    now = datetime.now(ZoneInfo("Asia/Bangkok"))
+    try:
+        room_booking.validate_booking_input(
+            room=room,
+            booking_date=payload.booking_date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            user_count=payload.user_count,
+            now=now,
+            config=DEFAULT_AVAILABILITY_CONFIG,
+        )
+    except room_booking.BookingValidationError as error:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "available": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+    available_slots = _get_room_available_slots(
+        room, payload.booking_date, payload.user_count, now
+    )
+    selected_slots = [
+        slot
+        for slot in available_slots
+        if slot.start_time >= payload.start_time
+        and slot.end_time <= payload.end_time
+    ]
+    start_minutes = payload.start_time.hour * 60 + payload.start_time.minute
+    end_minutes = payload.end_time.hour * 60 + payload.end_time.minute
+    duration_minutes = end_minutes - start_minutes
+    required_slots = duration_minutes // DEFAULT_AVAILABILITY_CONFIG.slot_minutes
+    if len(selected_slots) == required_slots:
+        return {
+            "available": True,
+            "message": None,
+            "summary": {
+                "room_id": room.room_id,
+                "room_type": room.room_type,
+                "booking_date": payload.booking_date.isoformat(),
+                "start_time": payload.start_time.isoformat(timespec="minutes"),
+                "end_time": payload.end_time.isoformat(timespec="minutes"),
+                "user_count": payload.user_count,
+            },
+        }
+
+    serialized_slots = _serialize_room_slots(available_slots)
+    message = (
+        "ช่วงเวลานี้ไม่ว่าง กรุณาเลือกเวลาใหม่"
+        if serialized_slots
+        else "ห้องนี้ไม่มีช่วงว่างในวันที่เลือก"
+    )
+    return {
+        "available": False,
+        "message": message,
+        "available_slots": serialized_slots,
+    }
+
+
+@app.post("/api/room-reservations", response_model=None)
+async def create_room_reservation_endpoint(
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    """ยืนยันการจองด้วยการตรวจและบันทึกแบบ atomic (FR-จองห้องอ่านหนังสือ-/-ห้องประชุม-02, FR-จองห้องอ่านหนังสือ-/-ห้องประชุม-03)."""
+    member = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if member is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบก่อนจองห้อง",
+            },
+        )
+
+    try:
+        payload_data = await request.json()
+    except (JSONDecodeError, UnicodeDecodeError):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "code": "invalid_request",
+                "message": "ข้อมูลคำขอไม่ถูกต้อง",
+            },
+        )
+
+    try:
+        payload = RoomReservationRequest.model_validate(payload_data)
+    except ValidationError as error:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "code": "invalid_request",
+                "message": "ข้อมูลคำขอไม่ถูกต้อง",
+                "errors": error.errors(),
+            },
+        )
+
+    if not payload.request_id.strip():
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "code": "invalid_request_id",
+                "message": "กรุณาระบุตัวระบุคำขอ",
+            },
+        )
+
+    room = next(
+        (
+            candidate
+            for candidate in room_store.get_rooms()
+            if candidate.room_id == payload.room_id
+        ),
+        None,
+    )
+    if room is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "code": "room_not_found",
+                "message": "ไม่พบห้องที่เลือก",
+            },
+        )
+
+    now = datetime.now(ZoneInfo("Asia/Bangkok"))
+    try:
+        booking = room_booking.create_room_booking(
+            room=room,
+            booking_date=payload.booking_date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            user_count=payload.user_count,
+            member_id=member.student_id or member.username,
+            request_id=payload.request_id,
+            now=now,
+            config=DEFAULT_AVAILABILITY_CONFIG,
+        )
+    except room_booking.BookingValidationError as error:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+    except room_booking.RoomBookingConflict as error:
+        if error.code == "room_unavailable":
+            available_slots = _serialize_room_slots(
+                _get_room_available_slots(
+                    room, payload.booking_date, payload.user_count, now
+                )
+            )
+            message = (
+                "ช่วงเวลานี้ไม่ว่าง กรุณาเลือกเวลาใหม่"
+                if available_slots
+                else "ห้องนี้ไม่มีช่วงว่างในวันที่เลือก"
+            )
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "success": False,
+                    "available": False,
+                    "code": error.code,
+                    "message": message,
+                    "available_slots": available_slots,
+                },
+            )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+    return {
+        "success": True,
+        "booking": {
+            "booking_id": booking.booking_id,
+            "room_id": booking.room_id,
+            "booking_date": booking.booking_date.isoformat(),
+            "start_time": booking.start_time.isoformat(timespec="minutes"),
+            "end_time": booking.end_time.isoformat(timespec="minutes"),
+            "request_id": booking.request_id,
+            "member_id": booking.member_id,
+            "user_count": booking.user_count,
+        },
     }
 
 

@@ -131,6 +131,85 @@ select {
   justify-self: start;
 }
 
+.button-link {
+  display: inline-block;
+  margin-top: 16px;
+  border-radius: 8px;
+  padding: 10px 18px;
+  color: #fff;
+  background: #185c88;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.reservation-context {
+  margin-bottom: 20px;
+}
+
+.reservation-context h2 {
+  margin-top: 0;
+}
+
+.reservation-context p {
+  margin: 6px 0;
+}
+
+.reservation-form {
+  display: grid;
+  gap: 20px;
+}
+
+.reservation-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.reservation-available-slots ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slot-button {
+  padding: 6px 10px;
+  color: #174b35;
+  background: #e7f5ed;
+}
+
+.reservation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.secondary-link {
+  color: #185c88;
+  background: #e8f2f8;
+}
+
+.reservation-actions .button-link {
+  margin-top: 0;
+}
+
+.login-shell {
+  width: min(440px, calc(100% - 32px));
+}
+
+.login-form {
+  display: grid;
+  gap: 10px;
+}
+
+.login-form label {
+  margin-top: 6px;
+  font-weight: 700;
+}
+
 .demo-notice {
   color: #55420d;
   background: #fff7dc;
@@ -371,6 +450,10 @@ select {
   }
 
   .availability-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-fields {
     grid-template-columns: 1fr;
   }
 }

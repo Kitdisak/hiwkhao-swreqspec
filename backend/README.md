@@ -34,3 +34,7 @@ PYTHONPATH=. python tests/perf_room_availability.py
 สคริปต์สร้าง API server ชั่วคราวและใช้ข้อมูลทดสอบ 50 ห้องกับ 36,000 รายการจองใน 60 วัน; ยิงคำขอพร้อมกัน 50 และ 200 ครั้งทั้งแบบไม่ใช้ตัวกรองและใช้ตัวกรอง 12 คนขึ้นไป. รายงานเปอร์เซ็นต์คำขอไม่เกิน 3 วินาที, p95, เวลาเฉลี่ย และเวลาสูงสุด; การวัดสิ้นสุดเมื่อรับและตรวจสอบ JSON response ครบ และไม่รวม browser rendering ตามวิธีวัด API ของ SPEC-001 ASM-06. ค่า 3 วินาทีเป็นเป้าหมาย ไม่ใช่เกณฑ์ผ่าน/ตก.
 
 หากต้องการเปิดหน้าเว็บกับ fixture นี้เพื่อวัด browser rendering แยกจาก API ให้เริ่ม `PYTHONPATH=. python tests/perf_room_availability.py --serve-only` แล้วเปิด frontend; อีก terminal ใช้ `PYTHONPATH=. python tests/perf_room_availability.py --base-url http://127.0.0.1:8000` เพื่อยิงโหลดพร้อมกัน. หยุด fixture server ด้วย Ctrl+C.
+
+## ข้อจำกัดการรันระบบห้อง (SPEC-008/009/010)
+
+ข้อมูลห้องและรายการจองใช้ in-memory store ร่วมกัน และ lock ต่อห้องป้องกันการจองซ้อนได้ภายใน backend process เดียวเท่านั้น. ให้รัน backend เพียง process เดียว: ห้ามใช้ Uvicorn `--workers` มากกว่า 1 และห้ามใช้ Gunicorn แบบหลาย worker; ระหว่างพัฒนาใช้ Uvicorn `--reload` ได้. ข้อมูลในหน่วยความจำจะหายเมื่อ process หยุด. หากต้องย้ายไปฐานข้อมูลหรือรองรับหลาย process ในอนาคต ต้องย้ายข้อมูลห้องและรายการจองของ SPEC-008/009/010 พร้อมกัน.
