@@ -1,0 +1,14 @@
+[
+  {
+    "member_type": "student",
+    "book_type": "หนังสือทั่วไป",
+    "maximum_items": 5,
+    "loan_days": 14
+  },
+  {
+    "member_type": "staff",
+    "book_type": "หนังสือทั่วไป",
+    "maximum_items": 10,
+    "loan_days": 30
+  }
+]

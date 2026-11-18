@@ -210,6 +210,35 @@ select {
   font-weight: 700;
 }
 
+.loan-form,
+.loan-panel,
+.loan-scan-form {
+  display: grid;
+  gap: 12px;
+}
+
+.loan-panel {
+  margin-top: 20px;
+}
+
+.loan-panel h2,
+.loan-items h3 {
+  margin: 0;
+}
+
+.loan-items ol {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 24px;
+}
+
+.loan-items li {
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+}
+
 .demo-notice {
   color: #55420d;
   background: #fff7dc;

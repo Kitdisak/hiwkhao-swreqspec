@@ -9,6 +9,8 @@ import AvailabilityPage from "./features/rooms/AvailabilityPage.jsx";
 import ReservationPage from "./features/rooms/ReservationPage.jsx";
 import MyReservationsPage from "./features/reservations/MyReservationsPage.jsx";
 import RoomReservationsPage from "./features/rooms/RoomReservationsPage.jsx";
+import BorrowingPage from "./features/loans/BorrowingPage.jsx";
+import ReturnPage from "./features/returns/ReturnPage.jsx";
 import "./style.css";
 
 const bookPathPrefix = "/books/";
@@ -19,6 +21,8 @@ const isRoomAvailability = currentPath === "/rooms/availability";
 const isRoomReservation = currentPath === "/rooms/reservations/new";
 const isMyReservations = currentPath === "/my-reservations";
 const isRoomReservations = currentPath === "/rooms/reservations";
+const isLoanRecording = currentPath === "/loans/new";
+const isReturnRecording = currentPath === "/returns";
 const isLogin = currentPath === "/login";
 const bookId = isBookDetail
   ? decodeURIComponent(currentPath.slice(bookPathPrefix.length))
@@ -34,6 +38,10 @@ if (isFinePayment) {
   document.title = "รายการจองของฉัน";
 } else if (isRoomReservations) {
   document.title = "การจองห้องของฉัน";
+} else if (isLoanRecording) {
+  document.title = "บันทึกการยืมหนังสือ";
+} else if (isReturnRecording) {
+  document.title = "รับคืนหนังสือและคำนวณค่าปรับ";
 } else if (isLogin) {
   document.title = "เข้าสู่ระบบ";
 }
@@ -52,6 +60,10 @@ createRoot(document.getElementById("root")).render(
       <MyReservationsPage />
     ) : isRoomReservations ? (
       <RoomReservationsPage />
+    ) : isLoanRecording ? (
+      <BorrowingPage />
+    ) : isReturnRecording ? (
+      <ReturnPage />
     ) : isBookDetail ? (
       <BookDetailPage bookId={bookId} />
     ) : (

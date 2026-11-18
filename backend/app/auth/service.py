@@ -72,6 +72,26 @@ def find_user_by_username(username: str) -> User | None:
     return next((user for user in USERS if user.username == username), None)
 
 
+def find_borrow_member(identifier: str | None) -> User | None:
+    """ค้นหาสมาชิกสำหรับการยืมด้วยรหัสนักศึกษาหรืออีเมลบุคลากร (FR-01, ASM-19)."""
+    if not identifier:
+        return None
+    key = identifier.strip().casefold()
+    return next(
+        (
+            user
+            for user in USERS
+            if (
+                user.user_type == "student"
+                and user.student_id
+                and user.student_id.casefold() == key
+            )
+            or (user.user_type == "staff" and user.email.casefold() == key)
+        ),
+        None,
+    )
+
+
 def _find_login_user(identifier: str | None) -> User | None:
     if not identifier:
         return None

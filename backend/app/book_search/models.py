@@ -23,6 +23,7 @@ class BookCopy:
     item_identifier: str
     status: str | None = None
     expected_return_date: str | None = None
+    book_type: str | None = None
 
 
 @dataclass(frozen=True)

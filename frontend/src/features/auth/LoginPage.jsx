@@ -7,10 +7,11 @@ function getReturnTo() {
     candidate === "/rooms/reservations/new" ||
     candidate?.startsWith("/rooms/reservations/new?");
   const isMyReservations = candidate === "/my-reservations";
+  const isLoanRecording = candidate === "/loans/new";
   if (
     !candidate ||
     candidate.startsWith("//") ||
-    (!isRoomReservation && !isMyReservations)
+    (!isRoomReservation && !isMyReservations && !isLoanRecording)
   ) {
     return "/";
   }
@@ -20,7 +21,8 @@ function getReturnTo() {
     destination.origin !== window.location.origin ||
     (isRoomReservation &&
       destination.pathname !== "/rooms/reservations/new") ||
-    (isMyReservations && destination.pathname !== "/my-reservations")
+    (isMyReservations && destination.pathname !== "/my-reservations") ||
+    (isLoanRecording && destination.pathname !== "/loans/new")
   ) {
     return "/";
   }
@@ -36,6 +38,7 @@ export default function LoginPage() {
   const returnTo = getReturnTo();
   const bookingLogin = returnTo.startsWith("/rooms/reservations/new");
   const reservationTrackingLogin = returnTo === "/my-reservations";
+  const loanRecordingLogin = returnTo === "/loans/new";
 
   async function submitLogin(event) {
     event.preventDefault();
@@ -80,6 +83,11 @@ export default function LoginPage() {
       {reservationTrackingLogin && (
         <p className="feedback" role="status">
           กรุณาเข้าสู่ระบบก่อนดูรายการจอง
+        </p>
+      )}
+      {loanRecordingLogin && (
+        <p className="feedback" role="status">
+          กรุณาเข้าสู่ระบบด้วยบัญชีบุคลากรก่อนบันทึกการยืม
         </p>
       )}
 

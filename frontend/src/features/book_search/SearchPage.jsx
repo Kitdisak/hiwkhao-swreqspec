@@ -125,6 +125,12 @@ export default function SearchPage() {
         <a className="feature-link" href="/my-reservations">
           รายการจองของฉัน
         </a>
+        <a className="feature-link" href="/loans/new">
+          บันทึกการยืมหนังสือ
+        </a>
+        <a className="feature-link" href="/returns">
+          รับคืนหนังสือ
+        </a>
       </header>
 
       <form className="search-panel" onSubmit={submitSearch}>

@@ -17,9 +17,15 @@ from .auth.session import (
     create_session,
     get_session_user,
 )
-from .auth.service import login_user, reset_password
+from .auth.service import find_borrow_member, login_user, reset_password
 from .book_details.service import get_book_details
 from .book_search.service import search_books
+from .loans.service import (
+    LoanError,
+    check_copy,
+    confirm_loan,
+    lookup_member,
+)
 from .reservations.service import (
     ReservationError,
     list_reservations_for_member,
@@ -27,6 +33,7 @@ from .reservations.service import (
 )
 from .fine_payment import service as fine_payment_service
 from .renew_loan.service import get_member_loans, renew_loan
+from .returns import service as return_service
 from .rooms import availability as room_availability
 from .rooms import booking as room_booking
 from .rooms.config import DEFAULT_AVAILABILITY_CONFIG
@@ -59,6 +66,22 @@ app = FastAPI(title="Library API", lifespan=lifespan)
 class ReservationRequest(BaseModel):
     title_id: str = Field(min_length=1, max_length=100)
     request_id: str = Field(min_length=1, max_length=200)
+
+
+class LoanCheckRequest(BaseModel):
+    member_identifier: str = Field(min_length=1)
+    item_identifier: str = Field(min_length=1)
+    pending_item_identifiers: list[str] = Field(default_factory=list)
+
+
+class LoanRequest(BaseModel):
+    member_identifier: str = Field(min_length=1)
+    item_identifiers: list[str] = Field(min_length=1)
+    request_id: str = Field(min_length=1, max_length=200)
+
+
+class ReturnRequest(BaseModel):
+    item_identifier: str = Field(min_length=1)
 
 
 class RoomReservationCheckRequest(BaseModel):
@@ -114,6 +137,56 @@ def _serialize_room_booking(booking: Any) -> dict[str, Any]:
         "user_count": booking.user_count,
         "status": booking.status,
     }
+
+
+def _librarian_access_error(request: Request) -> JSONResponse | None:
+    actor = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if actor is None:
+        return JSONResponse(
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบก่อนบันทึกการยืมหนังสือ",
+            },
+        )
+    if actor.user_type != "staff":
+        return JSONResponse(
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "librarian_required",
+                "message": "ไม่อนุญาตให้บันทึกการยืมหนังสือ",
+            },
+        )
+    return None
+
+
+def _return_librarian_access_error(request: Request) -> JSONResponse | None:
+    actor = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if actor is None:
+        return JSONResponse(
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบก่อนรับคืนหนังสือ",
+            },
+        )
+    if actor.user_type != "staff":
+        return JSONResponse(
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "librarian_required",
+                "message": "ไม่อนุญาตให้รับคืนหนังสือ",
+            },
+        )
+    return None
 
 
 @app.get("/health")
@@ -667,6 +740,146 @@ def list_my_reservations_endpoint(request: Request, response: Response) -> Any:
     try:
         return {"reservations": list_reservations_for_member(member)}
     except ReservationError as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+
+@app.get("/api/members/lookup")
+def borrowing_member_lookup_endpoint(
+    request: Request,
+    response: Response,
+    identifier: str = Query(min_length=1),
+) -> Any:
+    """ค้นหาสมาชิกสำหรับบันทึกการยืม (FR-บันทึกการยืมหนังสือ-01, ASM-19)."""
+    access_error = _librarian_access_error(request)
+    if access_error:
+        return access_error
+    response.headers["Cache-Control"] = "no-store"
+    member = lookup_member(identifier)
+    if member is None:
+        return JSONResponse(
+            status_code=404,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "member_not_found",
+                "message": "ไม่พบข้อมูลสมาชิก",
+            },
+        )
+    return {"member": member}
+
+
+@app.post("/api/loans/check")
+def check_loan_copy_endpoint(
+    payload: LoanCheckRequest, request: Request, response: Response
+) -> Any:
+    """ตรวจ Copy ที่สแกนก่อนยืนยัน (FR-บันทึกการยืมหนังสือ-02, FR-06)."""
+    access_error = _librarian_access_error(request)
+    if access_error:
+        return access_error
+    response.headers["Cache-Control"] = "no-store"
+    member = find_borrow_member(payload.member_identifier)
+    if member is None:
+        return JSONResponse(
+            status_code=404,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "member_not_found",
+                "message": "ไม่พบข้อมูลสมาชิก",
+            },
+        )
+    return check_copy(
+        member,
+        payload.item_identifier,
+        payload.pending_item_identifiers,
+    )
+
+
+@app.post("/api/loans")
+def record_loan_endpoint(
+    payload: LoanRequest, request: Request, response: Response
+) -> Any:
+    """บันทึก Loan/Copy และ reservation ใน transaction เดียว (FR-04, NFR-DATA-01)."""
+    access_error = _librarian_access_error(request)
+    if access_error:
+        return access_error
+    response.headers["Cache-Control"] = "no-store"
+    member = find_borrow_member(payload.member_identifier)
+    if member is None:
+        return JSONResponse(
+            status_code=404,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "member_not_found",
+                "message": "ไม่พบข้อมูลสมาชิก",
+            },
+        )
+    try:
+        return confirm_loan(
+            member,
+            payload.item_identifiers,
+            payload.request_id,
+        )
+    except LoanError as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+
+@app.get("/api/returns/lookup", response_model=None)
+def lookup_return_endpoint(
+    request: Request,
+    response: Response,
+    item_identifier: str = Query(min_length=1),
+) -> Any:
+    """ค้นหารายการยืมและประมาณค่าปรับ (FR-01 ถึง FR-03)."""
+    access_error = _return_librarian_access_error(request)
+    if access_error:
+        return access_error
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return return_service.lookup_return(item_identifier)
+    except return_service.ReturnError as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": error.code,
+                "message": error.message,
+            },
+        )
+
+
+@app.post("/api/returns", response_model=None)
+def confirm_return_endpoint(
+    payload: ReturnRequest,
+    request: Request,
+    response: Response,
+) -> Any:
+    """ยืนยันคืนและอัปเดต Loan/Copy/Fine/Reservation แบบ atomic (FR-04)."""
+    access_error = _return_librarian_access_error(request)
+    if access_error:
+        return access_error
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return return_service.confirm_return(payload.item_identifier)
+    except return_service.ReturnError as error:
         return JSONResponse(
             status_code=error.status_code,
             headers={"Cache-Control": "no-store"},

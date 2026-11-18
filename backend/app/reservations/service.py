@@ -6,7 +6,8 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+from contextlib import contextmanager
 
 from ..auth.models import User
 from ..book_search import models as catalog
@@ -14,6 +15,25 @@ from ..book_search import models as catalog
 _THAI_CONSONANTS = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ"
 _LEADING_VOWELS = "เแโใไ"
 _THAI_CONSONANT_RANK = {character: index for index, character in enumerate(_THAI_CONSONANTS)}
+
+
+@contextmanager
+def reservation_store_transaction() -> Iterator[sqlite3.Connection]:
+    """เปิด transaction ที่ใช้ store การจองเดิมร่วมกับการบันทึกการยืม."""
+    connection = _connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        yield connection
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def member_id_for_user(member: User) -> str:
+    return _member_id(member)
 
 
 @dataclass
@@ -46,6 +66,7 @@ def _connect() -> sqlite3.Connection:
             recorded_at TEXT NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('Waiting', 'Ready', 'Completed')),
             pickup_deadline TEXT,
+            reserved_item_identifier TEXT,
             queue_position_at_success INTEGER NOT NULL,
             first_name TEXT NOT NULL,
             last_name TEXT NOT NULL,
@@ -61,6 +82,10 @@ def _connect() -> sqlite3.Connection:
     }
     if "pickup_deadline" not in columns:
         connection.execute("ALTER TABLE reservations ADD COLUMN pickup_deadline TEXT")
+    if "reserved_item_identifier" not in columns:
+        connection.execute(
+            "ALTER TABLE reservations ADD COLUMN reserved_item_identifier TEXT"
+        )
     return connection
 
 
@@ -94,11 +119,31 @@ def _catalog_record(title_id: str):
     )
 
 
-def _copy_statuses(title_id: str) -> list[str | None]:
+def _copy_statuses(
+    title_id: str, connection: sqlite3.Connection
+) -> list[str | None]:
     record = _catalog_record(title_id)
     if record is None:
         raise ReservationError(404, "book_not_found", "ไม่พบหนังสือที่เลือก")
-    return [copy.status for copy in record.copies]
+    has_copy_status_store = connection.execute(
+        """
+        SELECT 1 FROM sqlite_master
+        WHERE type = 'table' AND name = 'loan_copy_status'
+        """
+    ).fetchone()
+    if not has_copy_status_store:
+        return [copy.status for copy in record.copies]
+
+    statuses = {
+        row["item_identifier"]: row["status"]
+        for row in connection.execute(
+            "SELECT item_identifier, status FROM loan_copy_status WHERE title_id = ?",
+            (title_id,),
+        ).fetchall()
+    }
+    return [
+        statuses.get(copy.item_identifier, copy.status) for copy in record.copies
+    ]
 
 
 def _eligibility_reasons(member: User) -> list[str]:
@@ -112,8 +157,10 @@ def _eligibility_reasons(member: User) -> list[str]:
     return reasons
 
 
-def _book_unavailable_message(title_id: str) -> str | None:
-    statuses = _copy_statuses(title_id)
+def _book_unavailable_message(
+    title_id: str, connection: sqlite3.Connection
+) -> str | None:
+    statuses = _copy_statuses(title_id, connection)
     if "Available" in statuses:
         return "มีเล่มว่าง สามารถยืมได้ที่ห้องสมุด"
     reservable_statuses = {"Borrowed", "Reserved"}
@@ -156,6 +203,26 @@ def _current_queue_position(
         for index, row in enumerate(waiting, start=1)
         if row["reservation_id"] == reservation["reservation_id"]
     )
+
+
+def first_waiting_reservation(
+    connection: sqlite3.Connection, title_id: str
+) -> dict[str, Any] | None:
+    """เลือกคิว Waiting แรกด้วยลำดับเดิมของ SPEC-004 (SPEC-012 ASM-14)."""
+    waiting = [
+        dict(row)
+        for row in connection.execute(
+            """
+            SELECT reservation_id, recorded_at, first_name, last_name, member_code
+            FROM reservations WHERE title_id = ? AND status = 'Waiting'
+            """,
+            (title_id,),
+        ).fetchall()
+    ]
+    if not waiting:
+        return None
+    waiting.sort(key=_reservation_sort_key)
+    return waiting[0]
 
 
 def _member_id(member: User) -> str:
@@ -208,7 +275,7 @@ def reserve_book(member: User, title_id: str, request_id: str) -> dict[str, Any]
         if reasons:
             raise ReservationError(403, "member_ineligible", " และ ".join(reasons))
 
-        unavailable_message = _book_unavailable_message(title_id)
+        unavailable_message = _book_unavailable_message(title_id, connection)
         if unavailable_message:
             raise ReservationError(409, "book_unavailable", unavailable_message)
 
