@@ -27,6 +27,12 @@ class RoomBookingConflict(ValueError):
         self.message = message
 
 
+class RoomCancellationResult:
+    def __init__(self, outcome: str, booking: RoomBooking | None = None):
+        self.outcome = outcome
+        self.booking = booking
+
+
 def _invalid_time_message(config: AvailabilityConfig) -> str:
     opening = config.opening_time.strftime("%H:%M")
     closing = config.closing_time.strftime("%H:%M")
@@ -180,6 +186,7 @@ def create_room_booking(
         overlaps_existing_booking = any(
             booking.room_id == room.room_id
             and booking.booking_date == booking_date
+            and booking.status != "ยกเลิกแล้ว"
             and start_time < booking.end_time
             and end_time > booking.start_time
             for booking in bookings
@@ -201,3 +208,36 @@ def create_room_booking(
         )
         room_store.add_room_booking(booking)
         return booking
+
+
+def cancel_room_booking(
+    booking_id: str,
+    member_id: str,
+    now: datetime,
+) -> RoomCancellationResult:
+    """ยกเลิกรายการของเจ้าของภายใต้ lock ต่อห้องและใช้ server datetime (FR-ติดตาม-/-ยกเลิกการจองห้อง-02 ถึง FR-04)."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+
+    booking = room_store.get_room_booking(booking_id)
+    if booking is None or booking.member_id != member_id:
+        return RoomCancellationResult("not_allowed")
+
+    with room_store.lock_room(booking.room_id):
+        booking = room_store.get_room_booking(booking_id)
+        if booking is None or booking.member_id != member_id:
+            return RoomCancellationResult("not_allowed")
+        if booking.status == "ยกเลิกแล้ว":
+            return RoomCancellationResult("already_cancelled", booking)
+
+        local_now = now.astimezone(_BANGKOK)
+        start_at = datetime.combine(
+            booking.booking_date,
+            booking.start_time,
+            tzinfo=_BANGKOK,
+        )
+        if local_now >= start_at:
+            return RoomCancellationResult("not_allowed")
+
+        cancelled = room_store.cancel_room_booking(booking)
+        return RoomCancellationResult("cancelled", cancelled)

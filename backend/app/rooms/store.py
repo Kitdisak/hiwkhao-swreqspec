@@ -1,5 +1,6 @@
 from _thread import LockType
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, time
 from threading import Lock
 from typing import Iterator
@@ -58,3 +59,33 @@ def add_room_booking(booking: RoomBooking) -> None:
     """เพิ่มรายการจองลงใน store ร่วม (FR-จองห้องอ่านหนังสือ-/-ห้องประชุม-03)."""
     with _ROOM_BOOKINGS_GUARD:
         ROOM_BOOKINGS.append(booking)
+
+
+def get_room_booking(booking_id: str) -> RoomBooking | None:
+    """อ่านรายการจองห้องตาม booking reference โดยไม่เปลี่ยนข้อมูล."""
+    with _ROOM_BOOKINGS_GUARD:
+        return next(
+            (booking for booking in ROOM_BOOKINGS if booking.booking_id == booking_id),
+            None,
+        )
+
+
+def get_member_room_bookings(member_id: str) -> list[RoomBooking]:
+    """อ่านรายการจองของสมาชิกตามตัวระบุจาก session เท่านั้น (FR-ติดตาม-/-ยกเลิกการจองห้อง-01)."""
+    with _ROOM_BOOKINGS_GUARD:
+        return [
+            booking
+            for booking in ROOM_BOOKINGS
+            if booking.member_id == member_id
+        ]
+
+
+def cancel_room_booking(booking: RoomBooking) -> RoomBooking:
+    """เปลี่ยนสถานะรายการเป็นยกเลิกแล้วโดยเก็บรายการไว้ใน store."""
+    cancelled = replace(booking, status="ยกเลิกแล้ว")
+    with _ROOM_BOOKINGS_GUARD:
+        for index, stored in enumerate(ROOM_BOOKINGS):
+            if stored.booking_id == booking.booking_id:
+                ROOM_BOOKINGS[index] = cancelled
+                break
+    return cancelled

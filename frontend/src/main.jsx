@@ -8,6 +8,7 @@ import LoginPage from "./features/auth/LoginPage.jsx";
 import AvailabilityPage from "./features/rooms/AvailabilityPage.jsx";
 import ReservationPage from "./features/rooms/ReservationPage.jsx";
 import MyReservationsPage from "./features/reservations/MyReservationsPage.jsx";
+import RoomReservationsPage from "./features/rooms/RoomReservationsPage.jsx";
 import "./style.css";
 
 const bookPathPrefix = "/books/";
@@ -17,6 +18,7 @@ const isFinePayment = currentPath === "/fines";
 const isRoomAvailability = currentPath === "/rooms/availability";
 const isRoomReservation = currentPath === "/rooms/reservations/new";
 const isMyReservations = currentPath === "/my-reservations";
+const isRoomReservations = currentPath === "/rooms/reservations";
 const isLogin = currentPath === "/login";
 const bookId = isBookDetail
   ? decodeURIComponent(currentPath.slice(bookPathPrefix.length))
@@ -30,6 +32,8 @@ if (isFinePayment) {
   document.title = "จองห้อง";
 } else if (isMyReservations) {
   document.title = "รายการจองของฉัน";
+} else if (isRoomReservations) {
+  document.title = "การจองห้องของฉัน";
 } else if (isLogin) {
   document.title = "เข้าสู่ระบบ";
 }
@@ -46,6 +50,8 @@ createRoot(document.getElementById("root")).render(
       <ReservationPage />
     ) : isMyReservations ? (
       <MyReservationsPage />
+    ) : isRoomReservations ? (
+      <RoomReservationsPage />
     ) : isBookDetail ? (
       <BookDetailPage bookId={bookId} />
     ) : (

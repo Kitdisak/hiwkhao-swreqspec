@@ -103,6 +103,19 @@ def _serialize_room_slots(
     ]
 
 
+def _serialize_room_booking(booking: Any) -> dict[str, Any]:
+    return {
+        "booking_id": booking.booking_id,
+        "room_id": booking.room_id,
+        "booking_date": booking.booking_date.isoformat(),
+        "start_time": booking.start_time.isoformat(timespec="minutes"),
+        "end_time": booking.end_time.isoformat(timespec="minutes"),
+        "member_id": booking.member_id,
+        "user_count": booking.user_count,
+        "status": booking.status,
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -429,6 +442,109 @@ async def create_room_reservation_endpoint(
             "member_id": booking.member_id,
             "user_count": booking.user_count,
         },
+    }
+
+
+@app.get("/api/me/room-reservations", response_model=None)
+def list_member_room_reservations(request: Request) -> dict[str, Any] | JSONResponse:
+    """แสดงรายการจองของผู้ใช้จาก session พร้อมสถานะ (FR-ติดตาม-/-ยกเลิกการจองห้อง-01)."""
+    member = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if member is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบ",
+            },
+        )
+
+    member_id = member.student_id or member.username
+    bookings = room_store.get_member_room_bookings(member_id)
+    return {
+        "bookings": [
+            _serialize_room_booking(booking)
+            for booking in bookings
+        ]
+    }
+
+
+@app.get("/api/me/room-reservations/{booking_id}", response_model=None)
+def get_member_room_reservation(
+    booking_id: str,
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    """อ่านรายละเอียดรายการโดยไม่เปลี่ยนข้อมูล (FR-ติดตาม-/-ยกเลิกการจองห้อง-05)."""
+    member = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if member is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบ",
+            },
+        )
+
+    member_id = member.student_id or member.username
+    booking = room_store.get_room_booking(booking_id)
+    if booking is None or booking.member_id != member_id:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "code": "room_reservation_not_found",
+                "message": "ไม่พบรายการจอง",
+            },
+        )
+    return {"booking": _serialize_room_booking(booking)}
+
+
+@app.post("/api/me/room-reservations/{booking_id}/cancel", response_model=None)
+def cancel_member_room_reservation(
+    booking_id: str,
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    """ยกเลิกรายการของเจ้าของภายใต้ lock ต่อห้อง (FR-ติดตาม-/-ยกเลิกการจองห้อง-02 ถึง FR-04)."""
+    member = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if member is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบ",
+            },
+        )
+
+    member_id = member.student_id or member.username
+    now = datetime.now(ZoneInfo("Asia/Bangkok"))
+    result = room_booking.cancel_room_booking(
+        booking_id=booking_id,
+        member_id=member_id,
+        now=now,
+    )
+    if result.outcome == "not_allowed":
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "code": "cancellation_not_allowed",
+                "message": "ไม่สามารถยกเลิกได้",
+            },
+        )
+    if result.outcome == "already_cancelled":
+        return {
+            "success": True,
+            "outcome": "already_cancelled",
+            "message": "ยกเลิกแล้ว",
+            "booking": _serialize_room_booking(result.booking),
+        }
+    return {
+        "success": True,
+        "outcome": "cancelled",
+        "message": None,
+        "booking": _serialize_room_booking(result.booking),
     }
 
 

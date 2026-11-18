@@ -25,6 +25,7 @@ class RoomBooking:
     request_id: str | None = None
     member_id: str | None = None
     user_count: int | None = None
+    status: str = "จองแล้ว"
 
 
 @dataclass(frozen=True)

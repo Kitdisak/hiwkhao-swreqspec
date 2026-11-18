@@ -78,7 +78,10 @@ def calculate_availability(
         )
     ]
     day_bookings = [
-        booking for booking in bookings if booking.booking_date == selected_date
+        booking
+        for booking in bookings
+        if booking.booking_date == selected_date
+        and booking.status != "ยกเลิกแล้ว"
     ]
 
     available_rooms: list[AvailableRoom] = []
