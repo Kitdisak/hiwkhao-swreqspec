@@ -117,6 +117,9 @@ class ManagedAccountUpdateRequest(BaseModel):
     last_name: str = ""
     email: str = ""
     phone: str = ""
+    role: str | None = None
+    permissions: list[str] | None = None
+    status: str | None = None
 
 
 class ManagedRoleRequest(BaseModel):
@@ -888,15 +891,23 @@ def update_admin_user_endpoint(
                 "message": "คุณไม่มีสิทธิ์ดำเนินการนี้",
             },
         )
-    account, error = auth_service.update_managed_account(
+    account, error = auth_service.apply_managed_account_change(
         account_id,
+        actor_username=actor.username,
         first_name=payload.first_name,
         last_name=payload.last_name,
         email=payload.email,
         phone=payload.phone,
+        role=payload.role,
+        permissions=payload.permissions,
+        status=payload.status,
     )
     if error:
-        status_code = 409 if error["code"] == "email_duplicate" else 422
+        status_code = (
+            503 if error["code"] == "audit_failed"
+            else 409 if error["code"] == "email_duplicate"
+            else 422
+        )
         return JSONResponse(
             status_code=status_code,
             content={"success": False, **error},

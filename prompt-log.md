@@ -2471,6 +2471,31 @@
 
 ---
 
+## [2569-11-19] [14:11 ICT] คำสั่ง: /implement T-07-T-12 specs/014-จัดการสมาชิกและสิทธิ์ผู้ใช้
+
+- เครื่องมือ: Copilot ใน VS Code
+- ไฟล์ต้นทาง: `specs/014-จัดการสมาชิกและสิทธิ์ผู้ใช้/spec.md`, `plan.md`, `tasks.md`
+- ผลลัพธ์: Implement T-07 ถึง T-12 และเปลี่ยนสถานะเป็นเสร็จ
+
+### สิ่งที่ implement
+
+- เพิ่มตาราง `managed_account_audit` แบบ append-only บน SQLite เดิมพร้อม actor, target, Asia/Bangkok timestamp, field, old/new value
+- เพิ่ม transaction unified สำหรับข้อมูลทั่วไป Role/Permission และ account_status และ rollback เมื่อ validation หรือ Audit ล้มเหลว
+- เพิ่ม Audit สำหรับการแก้ฟิลด์, role, permissions และสถานะบนการเปลี่ยนแยกและ unified update
+- เพิ่ม revoke_sessions สำหรับบัญชี Suspended และป้องกัน session ที่ถูกระงับไม่สามารถใช้ฟีเจอร์ต่อ
+- เพิ่ม 401/403 และเพิ่ม tests atomic update, audit rollback, suspended session และ AC/role/status
+- ทดสอบ regression กับ SPEC-002/SPEC-004/SPEC-011 โดยไม่แก้ assertion หรือผลคาดหวังของ test อื่น
+
+### ผลตรวจสอบ
+
+- SPEC-014 tests: 6 passed
+- `PYTHONPATH=backend pytest -q`: **174 passed**, 1 StarletteDeprecationWarning
+- `npm --prefix frontend run build`: สำเร็จ
+- `python -m compileall -q backend/app backend/tests`: สำเร็จ
+- `git diff --check`: ผ่าน
+
+---
+
 ## [2569-11-19] [13:59 ICT] คำสั่ง: แก้ไข sqlite3.IntegrityError ใน managed_accounts
 
 - เครื่องมือ: Copilot ใน VS Code

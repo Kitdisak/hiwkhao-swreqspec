@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
@@ -153,3 +154,68 @@ def test_AC_จัดการสมาชิกและสิทธิ์ผ�
     )
     assert activate.status_code == 200
     assert activate.json()["account"]["account_status"] == "Active"
+
+
+def test_AC_จัดการสมาชิกและสิทธิ์ผู้ใช้_atomic_update_and_audit(member_admin):
+    client, _, _, _ = member_admin
+    client.cookies.set(SESSION_COOKIE, create_session("admin"))
+
+    response = client.patch(
+        "/api/admin/users/student",
+        json={
+            "first_name": "ชื่อใหม่",
+            "last_name": "นามสกุลใหม่",
+            "email": "atomic@example.com",
+            "phone": "0899999999",
+            "role": "librarian",
+            "permissions": ["manage_books"],
+            "status": "Active",
+        },
+    )
+    assert response.status_code == 200
+    audit = auth_service.list_account_audit()
+    fields = {row["field"] for row in audit}
+    assert {"first_name", "last_name", "email", "phone", "role", "permissions"} <= fields
+    assert all(row["target_account_id"] == "student" for row in audit)
+    assert all(row["actor_account_id"] == "admin" for row in audit)
+
+
+def test_AC_จัดการสมาชิกและสิทธิ์ผู้ใช้_suspended_session_revoked(member_admin):
+    client, _, _, _ = member_admin
+    suspended_session = create_session("student")
+    client.cookies.set(SESSION_COOKIE, suspended_session)
+
+    admin_session = create_session("admin")
+    client.cookies.set(SESSION_COOKIE, admin_session)
+    suspended = client.patch(
+        "/api/admin/users/student/status",
+        json={"status": "Suspended"},
+    )
+    assert suspended.status_code == 200
+
+    client.cookies.set(SESSION_COOKIE, suspended_session)
+    rejected = client.get("/api/admin/users", params={"q": "student"})
+    assert rejected.status_code == 401
+
+
+def test_AC_จัดการสมาชิกและสิทธิ์ผู้ใช้_audit_failure_rolls_back(monkeypatch, member_admin):
+    client, _, _, _ = member_admin
+    client.cookies.set(SESSION_COOKIE, create_session("admin"))
+
+    before = client.get("/api/admin/users/student").json()["account"]
+    def fail_audit(*args, **kwargs):
+        raise sqlite3.OperationalError("audit unavailable")
+
+    monkeypatch.setattr(auth_service, "_append_audit", fail_audit)
+    response = client.patch(
+        "/api/admin/users/student",
+        json={
+            "first_name": "ไม่ควรบันทึก",
+            "last_name": before["last_name"],
+            "email": "rollback@example.com",
+            "phone": before["phone"],
+        },
+    )
+    assert response.status_code == 503
+    after = client.get("/api/admin/users/student").json()["account"]
+    assert after["first_name"] == before["first_name"]

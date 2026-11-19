@@ -9,6 +9,8 @@ import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .models import User
 
@@ -63,6 +65,15 @@ def _member_connection() -> sqlite3.Connection:
             CREATE UNIQUE INDEX IF NOT EXISTS unique_managed_account_email
                 ON managed_accounts(email)
                 WHERE email IS NOT NULL AND TRIM(email) <> '';
+            CREATE TABLE IF NOT EXISTS managed_account_audit (
+                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_account_id TEXT NOT NULL,
+                target_account_id TEXT NOT NULL,
+                timestamp_bangkok TEXT NOT NULL,
+                field TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT
+            );
             """
         )
         legacy_exists = connection.execute(
@@ -99,6 +110,19 @@ def _member_connection() -> sqlite3.Connection:
                 WHERE email IS NOT NULL AND TRIM(email) <> ''
             """
         )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS managed_account_audit (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_account_id TEXT NOT NULL,
+            target_account_id TEXT NOT NULL,
+            timestamp_bangkok TEXT NOT NULL,
+            field TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT
+        )
+        """
+    )
 
     seeded_emails: set[str] = set()
     for user in USERS:
@@ -199,6 +223,50 @@ def find_user_by_username(username: str) -> User | None:
     return next((item for item in USERS if item.username == username), None)
 
 
+def _append_audit(
+    connection: sqlite3.Connection,
+    *,
+    actor_username: str,
+    target_username: str,
+    field: str,
+    old_value: str | None,
+    new_value: str | None,
+) -> None:
+    timestamp = datetime.now(ZoneInfo("Asia/Bangkok")).isoformat()
+    connection.execute(
+        """
+        INSERT INTO managed_account_audit (
+            actor_account_id, target_account_id, timestamp_bangkok,
+            field, old_value, new_value
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            actor_username,
+            target_username,
+            timestamp,
+            field,
+            old_value,
+            new_value,
+        ),
+    )
+
+
+def list_account_audit() -> list[dict[str, Any]]:
+    connection = _member_connection()
+    try:
+        rows = connection.execute(
+            """
+            SELECT audit_id, actor_account_id, target_account_id,
+                   timestamp_bangkok, field, old_value, new_value
+            FROM managed_account_audit
+            ORDER BY audit_id ASC
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        connection.close()
+
+
 def search_managed_accounts(query: str | None) -> list[dict[str, Any]]:
     key = (query or "").strip().casefold()
     if not key:
@@ -257,6 +325,7 @@ def update_managed_account(
     last_name: str,
     email: str,
     phone: str,
+    actor_username: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     user = find_user_by_username(username)
     if user is None:
@@ -288,6 +357,15 @@ def update_managed_account(
     connection = _member_connection()
     try:
         connection.execute("BEGIN IMMEDIATE")
+        if actor_username:
+            if user.first_name != updated.first_name:
+                _append_audit(connection, actor_username=actor_username, target_username=username, field="first_name", old_value=user.first_name, new_value=updated.first_name)
+            if user.last_name != updated.last_name:
+                _append_audit(connection, actor_username=actor_username, target_username=username, field="last_name", old_value=user.last_name, new_value=updated.last_name)
+            if user.email != updated.email:
+                _append_audit(connection, actor_username=actor_username, target_username=username, field="email", old_value=user.email or None, new_value=updated.email or None)
+            if user.phone != updated.phone:
+                _append_audit(connection, actor_username=actor_username, target_username=username, field="phone", old_value=user.phone, new_value=updated.phone)
         connection.execute(
             """
             UPDATE managed_accounts
@@ -297,6 +375,9 @@ def update_managed_account(
             (normalized_email, updated.first_name, updated.last_name, updated.phone, username),
         )
         connection.commit()
+    except sqlite3.OperationalError:
+        connection.rollback()
+        return None, {"code": "audit_failed", "message": "ไม่สามารถบันทึกการเปลี่ยนแปลงได้"}
     except BaseException:
         connection.rollback()
         raise
@@ -306,6 +387,9 @@ def update_managed_account(
         if current.username == username:
             USERS[index] = updated
             break
+    if status == "Suspended":
+        from .session import revoke_sessions
+        revoke_sessions(username)
     return get_managed_account(username), None
 
 
@@ -367,8 +451,11 @@ def change_managed_role_permissions(
     )
     connection = _member_connection()
     try:
-        import json
         connection.execute("BEGIN IMMEDIATE")
+        if user.role != updated.role:
+            _append_audit(connection, actor_username=actor_username, target_username=username, field="role", old_value=user.role, new_value=updated.role)
+        if tuple(user.permissions) != updated.permissions:
+            _append_audit(connection, actor_username=actor_username, target_username=username, field="permissions", old_value=",".join(user.permissions), new_value=",".join(updated.permissions))
         connection.execute(
             """
             UPDATE managed_accounts
@@ -378,6 +465,9 @@ def change_managed_role_permissions(
             (normalized_role, json.dumps(list(updated.permissions)), username),
         )
         connection.commit()
+    except sqlite3.OperationalError:
+        connection.rollback()
+        return None, {"code": "audit_failed", "message": "ไม่สามารถบันทึกการเปลี่ยนแปลงได้"}
     except BaseException:
         connection.rollback()
         raise
@@ -387,6 +477,9 @@ def change_managed_role_permissions(
         if current.username == username:
             USERS[index] = updated
             break
+    if updated.account_status == "Suspended":
+        from .session import revoke_sessions
+        revoke_sessions(username)
     return get_managed_account(username), None
 
 
@@ -431,6 +524,8 @@ def set_managed_account_status(
     connection = _member_connection()
     try:
         connection.execute("BEGIN IMMEDIATE")
+        if user.account_status != status:
+            _append_audit(connection, actor_username=actor_username, target_username=username, field="account_status", old_value=user.account_status, new_value=status)
         connection.execute(
             "UPDATE managed_accounts SET account_status = ? WHERE username = ?",
             (status, username),
@@ -445,6 +540,136 @@ def set_managed_account_status(
         if current.username == username:
             USERS[index] = updated
             break
+    if updated.account_status == "Suspended":
+        from .session import revoke_sessions
+        revoke_sessions(username)
+    return get_managed_account(username), None
+
+
+def apply_managed_account_change(
+    username: str,
+    *,
+    actor_username: str,
+    first_name: str,
+    last_name: str,
+    email: str,
+    phone: str,
+    role: str | None,
+    permissions: list[str] | None,
+    status: str | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if username == actor_username:
+        return None, {"code": "permission_required", "message": "คุณไม่มีสิทธิ์ดำเนินการนี้"}
+    actor = find_user_by_username(actor_username)
+    user = find_user_by_username(username)
+    if actor is None or "manage_users" not in actor.permissions:
+        return None, {"code": "permission_required", "message": "คุณไม่มีสิทธิ์ดำเนินการนี้"}
+    if user is None:
+        return None, {"code": "account_not_found", "message": "ไม่พบบัญชีผู้ใช้"}
+
+    normalized_email = email.strip()
+    if not normalized_email and user.user_type == "external":
+        return None, {"code": "email_required", "message": "อีเมลห้ามว่างสำหรับบุคคลภายนอก"}
+    if normalized_email:
+        for existing in USERS:
+            if existing.username != username and existing.email.strip().casefold() == normalized_email.casefold():
+                return None, {"code": "email_duplicate", "message": "อีเมลซ้ำกับบัญชีอื่น"}
+
+    normalized_role = user.role
+    normalized_permissions = tuple(user.permissions)
+    if role is not None:
+        normalized_role = role.strip().casefold()
+        if normalized_role not in ROLE_PERMISSIONS:
+            return None, {"code": "invalid_role", "message": "Role ไม่ถูกต้อง"}
+        normalized_permissions = tuple(dict.fromkeys(permissions or []))
+        if any(permission not in ROLE_PERMISSIONS[normalized_role] for permission in normalized_permissions):
+            return None, {"code": "permission_required", "message": "คุณไม่มีสิทธิ์ดำเนินการนี้"}
+        if any(permission not in actor.permissions for permission in normalized_permissions):
+            return None, {"code": "permission_required", "message": "คุณไม่มีสิทธิ์ดำเนินการนี้"}
+
+    normalized_status = status or user.account_status
+    if normalized_status not in ("Active", "Suspended"):
+        return None, {"code": "invalid_status", "message": "สถานะบัญชีไม่ถูกต้อง"}
+    active_admin_count = sum(
+        1 for item in USERS
+        if item.role == "admin" and item.account_status == "Active"
+    )
+    if normalized_status == "Suspended" and user.role == "admin" and user.account_status == "Active" and active_admin_count <= 1:
+        return None, {"code": "permission_required", "message": "คุณไม่มีสิทธิ์ดำเนินการนี้"}
+    if user.role == "admin" and normalized_role != "admin" and active_admin_count <= 1:
+        return None, {"code": "permission_required", "message": "คุณไม่มีสิทธิ์ดำเนินการนี้"}
+
+    updated = User(
+        username=user.username,
+        email=normalized_email,
+        student_id=user.student_id,
+        password_hash=user.password_hash,
+        user_type=user.user_type,
+        role=normalized_role,
+        permissions=normalized_permissions,
+        account_status=normalized_status,
+        overdue_count=user.overdue_count,
+        unpaid_fine_count=user.unpaid_fine_count,
+        first_name=first_name.strip(),
+        last_name=last_name.strip(),
+        phone=phone.strip(),
+    )
+    connection = _member_connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        changes = (
+            ("first_name", user.first_name, updated.first_name),
+            ("last_name", user.last_name, updated.last_name),
+            ("email", user.email or None, updated.email or None),
+            ("phone", user.phone, updated.phone),
+            ("role", user.role, updated.role),
+            ("permissions", ",".join(user.permissions), ",".join(updated.permissions)),
+            ("account_status", user.account_status, updated.account_status),
+        )
+        for field, old_value, new_value in changes:
+            if old_value != new_value:
+                _append_audit(
+                    connection,
+                    actor_username=actor_username,
+                    target_username=username,
+                    field=field,
+                    old_value=str(old_value) if old_value is not None else None,
+                    new_value=str(new_value) if new_value is not None else None,
+                )
+        connection.execute(
+            """
+            UPDATE managed_accounts
+            SET email = ?, first_name = ?, last_name = ?, phone = ?,
+                role = ?, permissions_json = ?, account_status = ?
+            WHERE username = ?
+            """,
+            (
+                normalized_email or None,
+                updated.first_name,
+                updated.last_name,
+                updated.phone,
+                updated.role,
+                json.dumps(list(updated.permissions)),
+                updated.account_status,
+                username,
+            ),
+        )
+        connection.commit()
+    except sqlite3.OperationalError:
+        connection.rollback()
+        return None, {"code": "audit_failed", "message": "ไม่สามารถบันทึกการเปลี่ยนแปลงได้"}
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    for index, current in enumerate(USERS):
+        if current.username == username:
+            USERS[index] = updated
+            break
+    if updated.account_status == "Suspended":
+        from .session import revoke_sessions
+        revoke_sessions(username)
     return get_managed_account(username), None
 
 

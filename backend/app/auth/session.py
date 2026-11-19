@@ -36,3 +36,14 @@ def get_session_user(token: str | None) -> User | None:
         _sessions[token] = (username, now + SESSION_TIMEOUT_SECONDS)
     return find_user_by_username(username)
 
+
+def revoke_sessions(username: str) -> None:
+    with _lock:
+        expired = [
+            token
+            for token, (session_username, _) in _sessions.items()
+            if session_username == username
+        ]
+        for token in expired:
+            _sessions.pop(token, None)
+
