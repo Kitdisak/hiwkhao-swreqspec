@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..book_search import models as catalog
+from ..book_search.store import get_catalog_record
 from ..fine_payment.models import FineItem
 from ..fine_payment.store import initialize_fine_store, insert_fine_item
 from ..loans.service import _initialize_loan_store
@@ -78,11 +78,8 @@ def _active_loan(
     return rows[0]
 
 
-def _book_title(title_id: str) -> str:
-    record = next(
-        (item for item in catalog.CATALOG_RECORDS if item.book_id == title_id),
-        None,
-    )
+def _book_title(title_id: str, connection: sqlite3.Connection) -> str:
+    record = get_catalog_record(title_id, connection)
     if record is None:
         raise ReturnError(404, "book_not_found", "ไม่พบข้อมูลหนังสือ")
     return record.title
@@ -113,7 +110,7 @@ def lookup_return(
             "item_identifier": item_identifier,
             "loan_id": active["loan_id"],
             "member_id": active["member_id"],
-            "book_title": _book_title(active["title_id"]),
+            "book_title": _book_title(active["title_id"], connection),
             "due_date": due_date.isoformat(),
             "returned_date": returned_date.isoformat(),
             "overdue_days": overdue_days,
@@ -134,7 +131,7 @@ def confirm_return(
         active = _active_loan(connection, item_identifier)
         copy = connection.execute(
             """
-            SELECT title_id, status FROM loan_copy_status
+            SELECT book_id AS title_id, status FROM book_copies
             WHERE item_identifier = ?
             """,
             (item_identifier,),
@@ -149,7 +146,7 @@ def confirm_return(
         due_date = date.fromisoformat(active["due_date"])
         overdue_days, amount = _fine_amount(due_date, returned_date, rate)
         fine_id = str(uuid.uuid4()) if amount > 0 else None
-        title = _book_title(active["title_id"])
+        title = _book_title(active["title_id"], connection)
 
         updated_loan = connection.execute(
             """
@@ -200,7 +197,7 @@ def confirm_return(
 
         updated_copy = connection.execute(
             """
-            UPDATE loan_copy_status SET status = ?
+            UPDATE book_copies SET status = ?
             WHERE item_identifier = ? AND status = 'Borrowed'
             """,
             (copy_status, item_identifier),

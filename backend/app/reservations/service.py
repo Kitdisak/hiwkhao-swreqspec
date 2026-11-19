@@ -86,6 +86,17 @@ def _connect() -> sqlite3.Connection:
         connection.execute(
             "ALTER TABLE reservations ADD COLUMN reserved_item_identifier TEXT"
         )
+    from ..book_search import models as catalog
+    from ..book_search.store import initialize_catalog_store
+
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        initialize_catalog_store(connection, catalog.CATALOG_RECORDS)
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        connection.close()
+        raise
     return connection
 
 
@@ -112,37 +123,24 @@ def _reservation_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _catalog_record(title_id: str):
-    return next(
-        (record for record in catalog.CATALOG_RECORDS if record.book_id == title_id),
-        None,
-    )
+def _catalog_record(title_id: str, connection: sqlite3.Connection | None = None):
+    from ..book_search.store import get_catalog_record
+
+    return get_catalog_record(title_id, connection)
 
 
 def _copy_statuses(
     title_id: str, connection: sqlite3.Connection
 ) -> list[str | None]:
-    record = _catalog_record(title_id)
+    record = _catalog_record(title_id, connection)
     if record is None:
         raise ReservationError(404, "book_not_found", "ไม่พบหนังสือที่เลือก")
-    has_copy_status_store = connection.execute(
-        """
-        SELECT 1 FROM sqlite_master
-        WHERE type = 'table' AND name = 'loan_copy_status'
-        """
-    ).fetchone()
-    if not has_copy_status_store:
-        return [copy.status for copy in record.copies]
-
-    statuses = {
-        row["item_identifier"]: row["status"]
+    return [
+        row["status"]
         for row in connection.execute(
-            "SELECT item_identifier, status FROM loan_copy_status WHERE title_id = ?",
+            "SELECT status FROM book_copies WHERE book_id = ? ORDER BY item_identifier",
             (title_id,),
         ).fetchall()
-    }
-    return [
-        statuses.get(copy.item_identifier, copy.status) for copy in record.copies
     ]
 
 
@@ -357,7 +355,9 @@ def list_reservations_for_member(member: User) -> list[dict[str, Any]]:
         ).fetchall()
         reservations = []
         for row in rows:
-            record = _catalog_record(row["title_id"])
+            from ..book_search.store import get_catalog_record
+
+            record = get_catalog_record(row["title_id"], connection)
             if record is None:
                 raise ReservationError(
                     404,

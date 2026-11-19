@@ -4,6 +4,9 @@ from collections.abc import Sequence
 from typing import Any
 
 from .models import BOOKS, CatalogRecord
+from .store import get_catalog_records
+
+_INITIAL_BOOKS = BOOKS
 
 
 def _normalize(value: str | None) -> str:
@@ -50,8 +53,9 @@ def search_books(
     selected_categories = [*(categories or []), *([category] if category else [])]
     selected_authors = [*(authors or []), *([author] if author else [])]
 
+    records = get_catalog_records() if BOOKS is _INITIAL_BOOKS else BOOKS
     results = []
-    for record in BOOKS:
+    for record in records:
         if not _matches_query(record, query or ""):
             continue
 

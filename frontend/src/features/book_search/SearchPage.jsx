@@ -131,6 +131,9 @@ export default function SearchPage() {
         <a className="feature-link" href="/returns">
           รับคืนหนังสือ
         </a>
+        <a className="feature-link" href="/manage/books">
+          จัดการข้อมูลหนังสือ
+        </a>
       </header>
 
       <form className="search-panel" onSubmit={submitSearch}>

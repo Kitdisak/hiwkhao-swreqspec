@@ -18,8 +18,12 @@ from .auth.session import (
     get_session_user,
 )
 from .auth.service import find_borrow_member, login_user, reset_password
+from .auth import service as auth_service
 from .book_details.service import get_book_details
+from .book_search import isbn_lookup
 from .book_search.service import search_books
+from .book_search import store as catalog_store
+from .book_search.store import CatalogError
 from .loans.service import (
     LoanError,
     check_copy,
@@ -82,6 +86,46 @@ class LoanRequest(BaseModel):
 
 class ReturnRequest(BaseModel):
     item_identifier: str = Field(min_length=1)
+
+
+class BookCategoryRequest(BaseModel):
+    code: str = ""
+    label: str = ""
+
+
+class BookManagementRequest(BaseModel):
+    title: str = ""
+    authors: list[str] = Field(default_factory=list)
+    isbn: str = ""
+    publisher: str | None = None
+    publication_year: int | None = None
+    keywords: list[str] = Field(default_factory=list)
+    categories: list[BookCategoryRequest] = Field(default_factory=list)
+    call_number: str = ""
+    shelf: str = ""
+    zone: str = ""
+    copy_count: int | None = None
+    copies: list[str] = Field(default_factory=list)
+
+
+class CopyStatusRequest(BaseModel):
+    status: str
+
+
+class ManagedAccountUpdateRequest(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    email: str = ""
+    phone: str = ""
+
+
+class ManagedRoleRequest(BaseModel):
+    role: str
+    permissions: list[str] = Field(default_factory=list)
+
+
+class ManagedStatusRequest(BaseModel):
+    status: str
 
 
 class RoomReservationCheckRequest(BaseModel):
@@ -187,6 +231,67 @@ def _return_librarian_access_error(request: Request) -> JSONResponse | None:
             },
         )
     return None
+
+
+def _book_management_access_error(request: Request) -> JSONResponse | None:
+    actor = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if actor is None:
+        return JSONResponse(
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบก่อนจัดการข้อมูลหนังสือ",
+            },
+        )
+    if "manage_books" not in actor.permissions:
+        return JSONResponse(
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "permission_required",
+                "message": "คุณไม่มีสิทธิ์จัดการข้อมูลหนังสือ",
+            },
+        )
+    return None
+
+
+def _member_management_access_error(request: Request) -> tuple[object | None, JSONResponse | None]:
+    actor = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if actor is None:
+        return None, JSONResponse(
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบ",
+            },
+        )
+    if "manage_users" not in actor.permissions:
+        return None, JSONResponse(
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "permission_required",
+                "message": "คุณไม่มีสิทธิ์ดำเนินการนี้",
+            },
+        )
+    return actor, None
+
+
+def _catalog_error_response(error: CatalogError) -> JSONResponse:
+    content: dict[str, Any] = {
+        "success": False,
+        "code": error.code,
+        "message": error.message,
+    }
+    if error.field_errors:
+        content["field_errors"] = error.field_errors
+    return JSONResponse(status_code=error.status_code, content=content)
 
 
 @app.get("/health")
@@ -692,6 +797,231 @@ def book_details_endpoint(book_id: str, response: Response) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="ไม่พบหนังสือที่เลือก")
     response.headers["Cache-Control"] = "no-store"
     return details
+
+
+@app.get("/api/manage/books", response_model=None)
+def manage_books_list_endpoint(
+    request: Request,
+    query: str | None = Query(default=None),
+) -> dict[str, Any] | JSONResponse:
+    access_error = _book_management_access_error(request)
+    if access_error:
+        return access_error
+    return {"results": search_books(query=query)}
+
+
+@app.get("/api/manage/books/{book_id}", response_model=None)
+def manage_book_details_endpoint(
+    book_id: str, request: Request
+) -> dict[str, Any] | JSONResponse:
+    access_error = _book_management_access_error(request)
+    if access_error:
+        return access_error
+    record = catalog_store.get_catalog_record(book_id)
+    if record is None:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "code": "book_not_found", "message": "ไม่พบข้อมูลหนังสือ"},
+        )
+    return catalog_store.management_record(record)
+
+
+@app.get("/api/admin/users", response_model=None)
+def admin_users_search_endpoint(
+    request: Request,
+    q: str | None = Query(default=None),
+) -> dict[str, Any] | JSONResponse:
+    actor, access_error = _member_management_access_error(request)
+    if access_error:
+        return access_error
+    if not (q or "").strip():
+        return {
+            "success": False,
+            "code": "query_required",
+            "message": "กรุณากรอกคำค้น",
+            "results": [],
+        }
+    results = auth_service.search_managed_accounts(q)
+    return {
+        "success": True,
+        "message": None if results else "ไม่พบบัญชีผู้ใช้",
+        "results": results,
+    }
+
+
+@app.get("/api/admin/users/{account_id}", response_model=None)
+def admin_user_details_endpoint(
+    account_id: str,
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    actor, access_error = _member_management_access_error(request)
+    if access_error:
+        return access_error
+    account = auth_service.get_managed_account(account_id)
+    if account is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "code": "account_not_found",
+                "message": "ไม่พบบัญชีผู้ใช้",
+            },
+        )
+    return {"success": True, "account": account}
+
+
+@app.patch("/api/admin/users/{account_id}", response_model=None)
+def update_admin_user_endpoint(
+    account_id: str,
+    payload: ManagedAccountUpdateRequest,
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    actor, access_error = _member_management_access_error(request)
+    if access_error:
+        return access_error
+    if account_id == actor.username:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "code": "permission_required",
+                "message": "คุณไม่มีสิทธิ์ดำเนินการนี้",
+            },
+        )
+    account, error = auth_service.update_managed_account(
+        account_id,
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        email=payload.email,
+        phone=payload.phone,
+    )
+    if error:
+        status_code = 409 if error["code"] == "email_duplicate" else 422
+        return JSONResponse(
+            status_code=status_code,
+            content={"success": False, **error},
+        )
+    return {"success": True, "message": "บันทึกข้อมูลบัญชีแล้ว", "account": account}
+
+
+@app.patch("/api/admin/users/{account_id}/role", response_model=None)
+def update_admin_user_role_endpoint(
+    account_id: str,
+    payload: ManagedRoleRequest,
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    actor, access_error = _member_management_access_error(request)
+    if access_error:
+        return access_error
+    account, error = auth_service.change_managed_role_permissions(
+        account_id,
+        role=payload.role,
+        permissions=payload.permissions,
+        actor_username=actor.username,
+    )
+    if error:
+        status_code = 404 if error["code"] == "account_not_found" else 403
+        return JSONResponse(
+            status_code=status_code,
+            content={"success": False, **error},
+        )
+    return {"success": True, "message": "บันทึก Role/Permission แล้ว", "account": account}
+
+
+@app.patch("/api/admin/users/{account_id}/status", response_model=None)
+def update_admin_user_status_endpoint(
+    account_id: str,
+    payload: ManagedStatusRequest,
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    actor, access_error = _member_management_access_error(request)
+    if access_error:
+        return access_error
+    account, error = auth_service.set_managed_account_status(
+        account_id,
+        payload.status,
+        actor_username=actor.username,
+    )
+    if error:
+        status_code = 404 if error["code"] == "account_not_found" else 403
+        if error["code"] == "invalid_status":
+            status_code = 422
+        return JSONResponse(
+            status_code=status_code,
+            content={"success": False, **error},
+        )
+    return {"success": True, "message": "บันทึกสถานะบัญชีแล้ว", "account": account}
+
+
+@app.get("/api/manage/isbn-metadata", response_model=None)
+def lookup_book_isbn_endpoint(
+    request: Request,
+    isbn: str = Query(min_length=1),
+) -> dict[str, Any] | JSONResponse:
+    access_error = _book_management_access_error(request)
+    if access_error:
+        return access_error
+    try:
+        return {"success": True, **isbn_lookup.lookup_isbn(isbn.strip())}
+    except isbn_lookup.ISBNLookupError as error:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "success": False,
+                "code": "isbn_lookup_unavailable",
+                "message": str(error),
+            },
+        )
+
+
+@app.post("/api/manage/books", response_model=None)
+def create_managed_book_endpoint(
+    payload: BookManagementRequest, request: Request
+) -> dict[str, Any] | JSONResponse:
+    access_error = _book_management_access_error(request)
+    if access_error:
+        return access_error
+    try:
+        return {
+            "success": True,
+            "message": "บันทึกข้อมูลหนังสือแล้ว",
+            "book": catalog_store.create_book(payload.model_dump()),
+        }
+    except CatalogError as error:
+        return _catalog_error_response(error)
+
+
+@app.put("/api/manage/books/{book_id}", response_model=None)
+def update_managed_book_endpoint(
+    book_id: str, payload: BookManagementRequest, request: Request
+) -> dict[str, Any] | JSONResponse:
+    access_error = _book_management_access_error(request)
+    if access_error:
+        return access_error
+    try:
+        return {
+            "success": True,
+            "message": "บันทึกข้อมูลหนังสือแล้ว",
+            "book": catalog_store.update_book(book_id, payload.model_dump()),
+        }
+    except CatalogError as error:
+        return _catalog_error_response(error)
+
+
+@app.patch("/api/manage/copies/{item_identifier}/status", response_model=None)
+def change_managed_copy_status_endpoint(
+    item_identifier: str, payload: CopyStatusRequest, request: Request
+) -> dict[str, Any] | JSONResponse:
+    access_error = _book_management_access_error(request)
+    if access_error:
+        return access_error
+    try:
+        return {
+            "success": True,
+            **catalog_store.change_copy_status(item_identifier, payload.status),
+        }
+    except CatalogError as error:
+        return _catalog_error_response(error)
 
 
 @app.post("/api/reservations")

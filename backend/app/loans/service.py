@@ -11,7 +11,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..auth.models import User
-from ..book_search import models as catalog
 from ..renew_loan.service import get_member_loans
 from ..reservations.service import (
     member_id_for_user,
@@ -49,14 +48,6 @@ def _initialize_loan_store(connection: sqlite3.Connection) -> None:
             maximum_items INTEGER NOT NULL CHECK (maximum_items > 0),
             loan_days INTEGER NOT NULL CHECK (loan_days > 0),
             PRIMARY KEY (member_type, book_type)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS loan_copy_status (
-            item_identifier TEXT PRIMARY KEY,
-            title_id TEXT NOT NULL,
-            book_type TEXT NOT NULL,
-            status TEXT
         )
         """,
         """
@@ -160,23 +151,6 @@ def _initialize_loan_store(connection: sqlite3.Connection) -> None:
             ),
         )
 
-    for record in catalog.CATALOG_RECORDS:
-        for copy in record.copies:
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO loan_copy_status (
-                    item_identifier, title_id, book_type, status
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (
-                    copy.item_identifier,
-                    record.book_id,
-                    copy.book_type or GENERAL_BOOK_TYPE,
-                    copy.status,
-                ),
-            )
-
-
 def _member_profile(member: User) -> dict[str, Any]:
     return {
         "member_id": member_id_for_user(member),
@@ -216,10 +190,11 @@ def _copy_for_identifier(
 ) -> sqlite3.Row | None:
     return connection.execute(
         """
-        SELECT item_identifier, title_id, book_type, status
-        FROM loan_copy_status WHERE item_identifier = ?
+        SELECT item_identifier, book_id AS title_id,
+            COALESCE(book_type, ?) AS book_type, status
+        FROM book_copies WHERE item_identifier = ?
         """,
-        (item_identifier,),
+        (GENERAL_BOOK_TYPE, item_identifier),
     ).fetchone()
 
 
@@ -493,7 +468,7 @@ def confirm_loan(
                 )
                 updated = connection.execute(
                     """
-                    UPDATE loan_copy_status SET status = 'Borrowed'
+                    UPDATE book_copies SET status = 'Borrowed'
                     WHERE item_identifier = ? AND status = ?
                     """,
                     (copy["item_identifier"], copy["status"]),

@@ -40,6 +40,8 @@ class CatalogRecord:
     shelf: str | None = None
     zone: str | None = None
     call_number: str | None = None
+    publisher: str | None = None
+    publication_year: int | None = None
 
     def to_dict(self) -> dict:
         """คืนข้อมูลรายการค้นหาพร้อมรหัสทุกตัวเล่ม (FR-ค้นหาหนังสือ-01, ASM-08)."""

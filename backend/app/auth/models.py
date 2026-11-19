@@ -48,12 +48,17 @@ class User:
     unpaid_fine_count: int = 0
     first_name: str = ""
     last_name: str = ""
+    phone: str = ""
 
     def to_dict(self) -> dict[str, str | tuple[str, ...] | None]:
         return {
             "username": self.username,
             "email": self.email,
             "student_id": self.student_id,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "phone": self.phone,
+            "user_type": self.user_type,
             "role": self.role,
             "permissions": self.permissions,
             "account_status": self.account_status,

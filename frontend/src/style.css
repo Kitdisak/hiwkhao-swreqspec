@@ -44,6 +44,17 @@ input {
   background: #fff;
 }
 
+textarea {
+  min-width: 0;
+  min-height: 88px;
+  border: 1px solid #c8d2df;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: inherit;
+  background: #fff;
+  font: inherit;
+}
+
 select {
   min-width: 0;
   border: 1px solid #c8d2df;
@@ -465,6 +476,143 @@ select {
   clip-path: inset(50%);
 }
 
+.book-management-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.6fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.book-management-list,
+.book-management-editor {
+  min-width: 0;
+  padding: 20px;
+}
+
+.book-management-list h2,
+.book-management-editor h2 {
+  margin-top: 0;
+}
+
+.book-management-list form {
+  display: grid;
+  gap: 8px;
+}
+
+.book-management-list > .secondary-button {
+  margin-top: 14px;
+}
+
+.book-management-results {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.book-management-result {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  padding: 12px;
+  color: inherit;
+  text-align: left;
+  background: #f3f6fa;
+}
+
+.book-management-result span,
+.book-management-result small {
+  color: #5a6878;
+}
+
+.book-management-form {
+  display: grid;
+  gap: 8px;
+}
+
+.book-management-form > label,
+.book-management-list label {
+  margin-top: 8px;
+  font-weight: 700;
+}
+
+.book-management-form label span {
+  color: #5a6878;
+  font-size: 0.9em;
+  font-weight: 400;
+}
+
+.book-management-categories,
+.existing-copies {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+}
+
+.book-management-categories legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+
+.category-editor-row,
+.book-copy-field {
+  display: grid;
+  gap: 8px;
+}
+
+.existing-copies h3 {
+  margin: 0;
+}
+
+.existing-copies ul,
+.book-readback ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.existing-copies li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.existing-copies select {
+  max-width: 190px;
+}
+
+.field-error,
+.form-error {
+  color: #8d2930;
+}
+
+.form-success {
+  color: #174b35;
+}
+
+.form-hint {
+  color: #5a6878;
+}
+
+.book-readback {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid #c8dfd1;
+  border-radius: 8px;
+  background: #f2faf5;
+}
+
+.book-readback h3 {
+  margin-top: 0;
+}
+
 @media (max-width: 640px) {
   .page-shell {
     margin: 28px auto;
@@ -483,6 +631,10 @@ select {
   }
 
   .reservation-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .book-management-layout {
     grid-template-columns: 1fr;
   }
 }

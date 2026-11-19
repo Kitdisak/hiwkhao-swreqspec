@@ -11,6 +11,8 @@ import MyReservationsPage from "./features/reservations/MyReservationsPage.jsx";
 import RoomReservationsPage from "./features/rooms/RoomReservationsPage.jsx";
 import BorrowingPage from "./features/loans/BorrowingPage.jsx";
 import ReturnPage from "./features/returns/ReturnPage.jsx";
+import BookManagementPage from "./features/book_management/BookManagementPage.jsx";
+import UserManagementPage from "./features/user_management/UserManagementPage.jsx";
 import "./style.css";
 
 const bookPathPrefix = "/books/";
@@ -24,6 +26,8 @@ const isRoomReservations = currentPath === "/rooms/reservations";
 const isLoanRecording = currentPath === "/loans/new";
 const isReturnRecording = currentPath === "/returns";
 const isLogin = currentPath === "/login";
+const isBookManagement = currentPath === "/manage/books";
+const isUserManagement = currentPath === "/manage/users";
 const bookId = isBookDetail
   ? decodeURIComponent(currentPath.slice(bookPathPrefix.length))
   : "";
@@ -44,6 +48,10 @@ if (isFinePayment) {
   document.title = "รับคืนหนังสือและคำนวณค่าปรับ";
 } else if (isLogin) {
   document.title = "เข้าสู่ระบบ";
+} else if (isBookManagement) {
+  document.title = "จัดการข้อมูลหนังสือ";
+} else if (isUserManagement) {
+  document.title = "จัดการสมาชิกและสิทธิ์ผู้ใช้";
 }
 
 createRoot(document.getElementById("root")).render(
@@ -64,6 +72,10 @@ createRoot(document.getElementById("root")).render(
       <BorrowingPage />
     ) : isReturnRecording ? (
       <ReturnPage />
+    ) : isBookManagement ? (
+      <BookManagementPage />
+    ) : isUserManagement ? (
+      <UserManagementPage />
     ) : isBookDetail ? (
       <BookDetailPage bookId={bookId} />
     ) : (
