@@ -13,6 +13,7 @@ import BorrowingPage from "./features/loans/BorrowingPage.jsx";
 import ReturnPage from "./features/returns/ReturnPage.jsx";
 import BookManagementPage from "./features/book_management/BookManagementPage.jsx";
 import UserManagementPage from "./features/user_management/UserManagementPage.jsx";
+import ReportPage from "./features/reports/ReportPage.jsx";
 import "./style.css";
 
 const bookPathPrefix = "/books/";
@@ -28,6 +29,7 @@ const isReturnRecording = currentPath === "/returns";
 const isLogin = currentPath === "/login";
 const isBookManagement = currentPath === "/manage/books";
 const isUserManagement = currentPath === "/manage/users";
+const isReports = currentPath === "/reports";
 const bookId = isBookDetail
   ? decodeURIComponent(currentPath.slice(bookPathPrefix.length))
   : "";
@@ -52,6 +54,8 @@ if (isFinePayment) {
   document.title = "จัดการข้อมูลหนังสือ";
 } else if (isUserManagement) {
   document.title = "จัดการสมาชิกและสิทธิ์ผู้ใช้";
+} else if (isReports) {
+  document.title = "รายงานและสถิติห้องสมุด";
 }
 
 createRoot(document.getElementById("root")).render(
@@ -76,6 +80,8 @@ createRoot(document.getElementById("root")).render(
       <BookManagementPage />
     ) : isUserManagement ? (
       <UserManagementPage />
+    ) : isReports ? (
+      <ReportPage />
     ) : isBookDetail ? (
       <BookDetailPage bookId={bookId} />
     ) : (

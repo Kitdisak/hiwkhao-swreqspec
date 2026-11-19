@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const SEARCH_ENDPOINT = "/api/books/search";
 
@@ -51,6 +51,7 @@ function FilterValues({ label, value, onChange, values, onAdd, onRemove }) {
 }
 
 export default function SearchPage() {
+  const [session, setSession] = useState(null);
   const [query, setQuery] = useState("");
   const [categoryDraft, setCategoryDraft] = useState("");
   const [authorDraft, setAuthorDraft] = useState("");
@@ -60,6 +61,13 @@ export default function SearchPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/session", { credentials: "same-origin" })
+      .then((response) => response.json())
+      .then((data) => setSession(data))
+      .catch(() => setSession({ authenticated: false }));
+  }, []);
 
   // FR-ค้นหาหนังสือ-03: เก็บค่าตัวกรองที่ผู้ใช้เลือกแต่ละค่า
   function addFilterValue(value, selectedValues, setValue, setValues) {
@@ -134,6 +142,14 @@ export default function SearchPage() {
         <a className="feature-link" href="/manage/books">
           จัดการข้อมูลหนังสือ
         </a>
+        {session?.authenticated &&
+          (session.role === "admin" ||
+            session.role === "librarian" ||
+            session.permissions?.includes("view_reports")) && (
+            <a className="feature-link" href="/reports">
+              รายงานและสถิติ
+            </a>
+          )}
       </header>
 
       <form className="search-panel" onSubmit={submitSearch}>

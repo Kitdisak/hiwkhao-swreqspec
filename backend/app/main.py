@@ -8,7 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, ValidationError
 
 from .auth.session import (
@@ -43,6 +43,7 @@ from .rooms import booking as room_booking
 from .rooms.config import DEFAULT_AVAILABILITY_CONFIG
 from .rooms.models import AvailabilitySlot, Room
 from .rooms import store as room_store
+from .reports.service import ReportRangeError, build_report_csv, get_report
 
 
 async def _poll_payment_statuses() -> None:
@@ -286,6 +287,42 @@ def _member_management_access_error(request: Request) -> tuple[object | None, JS
     return actor, None
 
 
+def _report_access_error(request: Request) -> JSONResponse | None:
+    actor = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if actor is None:
+        return JSONResponse(
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "authentication_required",
+                "message": "กรุณาเข้าสู่ระบบ",
+            },
+        )
+
+    permissions = set(actor.permissions)
+    if actor.role not in ("member", "student"):
+        has_report_permission = (
+            actor.role in ("admin", "librarian")
+            or "view_reports" in permissions
+            or "ดูรายงาน" in permissions
+        )
+    else:
+        has_report_permission = False
+
+    if not has_report_permission:
+        return JSONResponse(
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "permission_required",
+                "message": "คุณไม่มีสิทธิ์ดูรายงาน",
+            },
+        )
+    return None
+
+
 def _catalog_error_response(error: CatalogError) -> JSONResponse:
     content: dict[str, Any] = {
         "success": False,
@@ -300,6 +337,106 @@ def _catalog_error_response(error: CatalogError) -> JSONResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/reports", response_model=None)
+def report_endpoint(
+    request: Request,
+    type: str = Query(alias="type"),
+    startDate: date = Query(alias="startDate"),
+    endDate: date = Query(alias="endDate"),
+) -> dict[str, Any] | JSONResponse:
+    """ดูรายงาน read-only ตาม NFR-SEC-01 และเกณฑ์ช่วงเวลาของ SPEC-015."""
+    access_error = _report_access_error(request)
+    if access_error:
+        return access_error
+    try:
+        return get_report(type, startDate, endDate)
+    except ReportRangeError as error:
+        return JSONResponse(
+            status_code=422,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": error.code,
+                "message": "ช่วงวันที่ไม่ถูกต้อง",
+                "has_data": False,
+            },
+        )
+
+
+@app.get("/api/reports/export", response_model=None)
+def report_export_endpoint(
+    request: Request,
+    type: str = Query(alias="type"),
+    startDate: date = Query(alias="startDate"),
+    endDate: date = Query(alias="endDate"),
+) -> Response | JSONResponse:
+    """ส่งออก CSV จากชุดข้อมูลเดียวกับหน้าจอรายงาน."""
+    access_error = _report_access_error(request)
+    if access_error:
+        return access_error
+    try:
+        result = get_report(type, startDate, endDate)
+    except ReportRangeError as error:
+        return JSONResponse(
+            status_code=422,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": error.code,
+                "message": "ช่วงวันที่ไม่ถูกต้อง",
+                "has_data": False,
+            },
+        )
+
+    if not result.get("has_data"):
+        return JSONResponse(
+            status_code=200,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": "no_report_data",
+                "message": "ไม่พบข้อมูลในช่วงเวลาที่เลือก",
+                "has_data": False,
+            },
+        )
+
+    csv_bytes, filename = build_report_csv(type, result)
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/api/reports/{report_type}", response_model=None)
+def report_alias_endpoint(
+    report_type: str,
+    request: Request,
+    startDate: date = Query(alias="startDate"),
+    endDate: date = Query(alias="endDate"),
+) -> dict[str, Any] | JSONResponse:
+    """Alias สำหรับเรียกประเภทรายงานจาก path คง query/output ชุดเดียวกับ /api/reports."""
+    access_error = _report_access_error(request)
+    if access_error:
+        return access_error
+    try:
+        return get_report(report_type, startDate, endDate)
+    except ReportRangeError as error:
+        return JSONResponse(
+            status_code=422,
+            headers={"Cache-Control": "no-store"},
+            content={
+                "success": False,
+                "code": error.code,
+                "message": "ช่วงวันที่ไม่ถูกต้อง",
+                "has_data": False,
+            },
+        )
 
 
 @app.get("/api/rooms/availability")
@@ -761,6 +898,8 @@ def auth_session_endpoint(request: Request) -> dict[str, Any]:
         "authenticated": True,
         "member_id": member.student_id or member.username,
         "username": member.username,
+        "role": member.role,
+        "permissions": list(member.permissions),
     }
 
 

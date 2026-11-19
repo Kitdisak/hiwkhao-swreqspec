@@ -99,6 +99,84 @@ select {
   margin-left: 12px;
 }
 
+.report-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.report-form label {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.report-result {
+  display: grid;
+  gap: 16px;
+}
+
+.report-card {
+  border: 1px solid #dfe6ee;
+  border-radius: 10px;
+  padding: 18px;
+  background: #f9fbfd;
+}
+
+.report-metric {
+  display: block;
+  font-size: 2.4rem;
+  color: #185c88;
+}
+
+.report-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 24px;
+}
+
+.report-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.report-fine-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-fine-grid div {
+  display: grid;
+  gap: 6px;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.report-table th,
+.report-table td {
+  border-bottom: 1px solid #dfe6ee;
+  padding: 10px;
+  text-align: left;
+}
+
+.report-empty,
+.error-message {
+  color: #9b2c2c;
+  font-weight: 700;
+}
+
+.export-button {
+  justify-self: start;
+}
+
 .search-panel,
 .book-card {
   border: 1px solid #e0e6ed;

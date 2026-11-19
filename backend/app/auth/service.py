@@ -124,6 +124,35 @@ def _member_connection() -> sqlite3.Connection:
         """
     )
 
+    for role_name in ("admin", "librarian"):
+        rows = connection.execute(
+            "SELECT username, permissions_json FROM managed_accounts WHERE role = ?",
+            (role_name,),
+        ).fetchall()
+        for row in rows:
+            permissions = json.loads(row["permissions_json"])
+            if "view_reports" not in permissions:
+                permissions.append("view_reports")
+                connection.execute(
+                    "UPDATE managed_accounts SET permissions_json = ? WHERE username = ?",
+                    (json.dumps(permissions), row["username"]),
+                )
+
+    member_rows = connection.execute(
+        "SELECT username, permissions_json FROM managed_accounts WHERE role = ?",
+        ("member",),
+    ).fetchall()
+    for row in member_rows:
+        permissions = [
+            permission
+            for permission in json.loads(row["permissions_json"])
+            if permission not in ("view_reports", "ดูรายงาน")
+        ]
+        connection.execute(
+            "UPDATE managed_accounts SET permissions_json = ? WHERE username = ?",
+            (json.dumps(permissions), row["username"]),
+        )
+
     seeded_emails: set[str] = set()
     for user in USERS:
         normalized_email = (user.email or "").strip()
@@ -187,7 +216,7 @@ USERS: list[User] = [
         password_hash=hash_password("admin123"),
         user_type="staff",
         role="admin",
-        permissions=("manage_users", "manage_books"),
+        permissions=("manage_users", "manage_books", "view_reports"),
     ),
 ]
 
@@ -395,8 +424,8 @@ def update_managed_account(
 
 ROLE_PERMISSIONS = {
     "member": ("view_profile", "borrow_book"),
-    "librarian": ("view_profile", "borrow_book", "manage_books"),
-    "admin": ("view_profile", "borrow_book", "manage_users", "manage_books"),
+    "librarian": ("view_profile", "borrow_book", "manage_books", "view_reports"),
+    "admin": ("view_profile", "borrow_book", "manage_users", "manage_books", "view_reports"),
 }
 
 
