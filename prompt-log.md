@@ -2471,6 +2471,31 @@
 
 ---
 
+## [2569-11-19] [13:59 ICT] คำสั่ง: แก้ไข sqlite3.IntegrityError ใน managed_accounts
+
+- เครื่องมือ: Copilot ใน VS Code
+- ไฟล์ต้นทาง: `backend/app/auth/service.py`, test suites ของฟีเจอร์จอง/ติดตามจอง และ SPEC-014
+
+### สาเหตุ
+
+- ตาราง `managed_accounts.email` ถูกสร้างเป็น `TEXT NOT NULL` และ unique index บังคับอีเมลว่างทุกตัวซ้ำกัน
+- การ sync account จาก SQLite ใน `find_user_by_username` ทำให้ fixture ของ test อื่นถูก persisted account override หลัง monkeypatch
+
+### การแก้ไข
+
+- เปลี่ยน `managed_accounts.email` ให้รองรับ NULL และสร้าง unique index แบบ partial เฉพาะอีเมลที่มีค่า
+- Migration จากตารางเดิมโดย trim อีเมลว่างเป็น NULL และสร้างตารางใหม่หากพบ schema เดิมที่ email NOT NULL
+- Seed หลายบัญชีด้วยอีเมลซ้ำให้บัญชีแรกเก็บอีเมลและบัญชีซ้ำเก็บ NULL เพื่อไม่ทำให้การสร้าง fixture ล้ม
+- จำกัดการอ่าน persisted account ให้เกิดใน login ผ่าน `_member_connection` และไม่ใช้ persisted data override memory ใน `find_user_by_username`
+- คงเกณฑ์อีเมลไม่ซ้ำของ SPEC-014 และคง assertion ของ test ในฟีเจอร์อื่นทั้งหมด
+
+### ผลตรวจสอบ
+
+- ชุดที่เคยมี errors/failed: 27 tests ผ่าน
+- `PYTHONPATH=backend pytest -q`: **171 passed**, 1 warning
+
+---
+
 ## [2569-11-19] [13:33 ICT] คำสั่ง: `/clarify specs/014-จัดการสมาชิกและสิทธิ์ผู้ใช้/spec.md`
 
 - เครื่องมือ: Copilot ใน VS Code

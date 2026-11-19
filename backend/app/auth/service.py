@@ -26,27 +26,92 @@ def _member_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(path, timeout=10, isolation_level=None)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 10000")
-    connection.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS managed_accounts (
-            username TEXT PRIMARY KEY,
-            email TEXT NOT NULL,
-            student_id TEXT,
-            user_type TEXT NOT NULL,
-            role TEXT NOT NULL,
-            permissions_json TEXT NOT NULL,
-            account_status TEXT NOT NULL DEFAULT 'Active'
-                CHECK (account_status IN ('Active', 'Suspended')),
-            first_name TEXT NOT NULL DEFAULT '',
-            last_name TEXT NOT NULL DEFAULT '',
-            phone TEXT NOT NULL DEFAULT ''
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS unique_managed_account_email
-            ON managed_accounts(email);
-        """
-    )
+    table_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'managed_accounts'"
+    ).fetchone()
+    if table_exists:
+        email_column = next(
+            (
+                row
+                for row in connection.execute("PRAGMA table_info(managed_accounts)")
+                if row["name"] == "email"
+            ),
+            None,
+        )
+        if email_column is not None and email_column["notnull"]:
+            connection.execute("DROP INDEX IF EXISTS unique_managed_account_email")
+            connection.execute(
+                "ALTER TABLE managed_accounts RENAME TO managed_accounts_legacy"
+            )
+            table_exists = None
+    if table_exists is None:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS managed_accounts (
+                username TEXT PRIMARY KEY,
+                email TEXT,
+                student_id TEXT,
+                user_type TEXT NOT NULL,
+                role TEXT NOT NULL,
+                permissions_json TEXT NOT NULL,
+                account_status TEXT NOT NULL DEFAULT 'Active'
+                    CHECK (account_status IN ('Active', 'Suspended')),
+                first_name TEXT NOT NULL DEFAULT '',
+                last_name TEXT NOT NULL DEFAULT '',
+                phone TEXT NOT NULL DEFAULT ''
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS unique_managed_account_email
+                ON managed_accounts(email)
+                WHERE email IS NOT NULL AND TRIM(email) <> '';
+            """
+        )
+        legacy_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'managed_accounts_legacy'"
+        ).fetchone()
+        if legacy_exists:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO managed_accounts (
+                    username, email, student_id, user_type, role, permissions_json,
+                    account_status, first_name, last_name, phone
+                )
+                SELECT
+                    username,
+                    NULLIF(TRIM(email), ''),
+                    student_id,
+                    user_type,
+                    role,
+                    permissions_json,
+                    account_status,
+                    first_name,
+                    last_name,
+                    phone
+                FROM managed_accounts_legacy
+                """
+            )
+            connection.execute("DROP TABLE managed_accounts_legacy")
+    else:
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS unique_managed_account_email
+                ON managed_accounts(email)
+                WHERE email IS NOT NULL AND TRIM(email) <> ''
+            """
+        )
+
+    seeded_emails: set[str] = set()
     for user in USERS:
-        import json
+        normalized_email = (user.email or "").strip()
+        normalized_email_key = normalized_email.casefold()
+        if normalized_email_key:
+            if normalized_email_key in seeded_emails:
+                persisted_email = None
+            else:
+                persisted_email = normalized_email
+                seeded_emails.add(normalized_email_key)
+        else:
+            persisted_email = None
         connection.execute(
             """
             INSERT INTO managed_accounts (
@@ -57,7 +122,7 @@ def _member_connection() -> sqlite3.Connection:
             """,
             (
                 user.username,
-                user.email,
+                persisted_email,
                 user.student_id,
                 user.user_type,
                 user.role,
@@ -131,45 +196,7 @@ def _find_user(identifier: str | None) -> User | None:
 
 
 def find_user_by_username(username: str) -> User | None:
-    user = next((item for item in USERS if item.username == username), None)
-    if user is None:
-        return None
-    connection = _member_connection()
-    try:
-        row = connection.execute(
-            """
-            SELECT email, role, permissions_json, account_status,
-                   first_name, last_name, phone
-            FROM managed_accounts
-            WHERE username = ?
-            """,
-            (username,),
-        ).fetchone()
-    finally:
-        connection.close()
-    if row is not None:
-        persisted_permissions = tuple(json.loads(row["permissions_json"]))
-        updated = User(
-            username=user.username,
-            email=row["email"],
-            student_id=user.student_id,
-            password_hash=user.password_hash,
-            user_type=user.user_type,
-            role=row["role"],
-            permissions=persisted_permissions,
-            account_status=row["account_status"],
-            overdue_count=user.overdue_count,
-            unpaid_fine_count=user.unpaid_fine_count,
-            first_name=row["first_name"],
-            last_name=row["last_name"],
-            phone=row["phone"],
-        )
-        for index, current in enumerate(USERS):
-            if current.username == username:
-                USERS[index] = updated
-                break
-        return updated
-    return user
+    return next((item for item in USERS if item.username == username), None)
 
 
 def search_managed_accounts(query: str | None) -> list[dict[str, Any]]:
@@ -462,9 +489,35 @@ def login_user(username: str | None = None, password: str | None = None, email: 
             "message": "รหัสผ่านหรือชื่อผู้ใช้ไม่ถูกต้อง",
             "session_timeout_seconds": 600,
         }
-    persisted_user = find_user_by_username(user.username)
-    if persisted_user is not None:
-        user = persisted_user
+    connection = _member_connection()
+    try:
+        row = connection.execute(
+            """
+            SELECT email, role, permissions_json, account_status,
+                   first_name, last_name, phone
+            FROM managed_accounts
+            WHERE username = ?
+            """,
+            (user.username,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is not None:
+        user = User(
+            username=user.username,
+            email=row["email"] or "",
+            student_id=user.student_id,
+            password_hash=user.password_hash,
+            user_type=user.user_type,
+            role=row["role"],
+            permissions=tuple(json.loads(row["permissions_json"])),
+            account_status=row["account_status"],
+            overdue_count=user.overdue_count,
+            unpaid_fine_count=user.unpaid_fine_count,
+            first_name=row["first_name"],
+            last_name=row["last_name"],
+            phone=row["phone"],
+        )
     if user.account_status == "Suspended":
         return {
             "success": False,
