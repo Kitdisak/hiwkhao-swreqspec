@@ -119,6 +119,11 @@ export default function LoginPage() {
         <button type="submit" disabled={isLoading}>
           {isLoading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
         </button>
+        <p>
+          <a href="/register">สมัครสมาชิก</a>
+          {" | "}
+          <a href="/forgot-password">ลืมรหัสผ่าน</a>
+        </p>
       </form>
     </main>
   );

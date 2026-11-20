@@ -49,6 +49,8 @@ class User:
     first_name: str = ""
     last_name: str = ""
     phone: str = ""
+    national_id: str = ""
+    date_of_birth: date | None = None
 
     def to_dict(self) -> dict[str, str | tuple[str, ...] | None]:
         return {

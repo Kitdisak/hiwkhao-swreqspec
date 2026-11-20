@@ -889,6 +889,25 @@ def login_endpoint(
     return result
 
 
+@app.post("/api/auth/register")
+def register_endpoint(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """สมัครสมาชิกและกำหนดรหัสผ่านใหม่ตาม AC-สมัครสมาชิก-/-เข้าสู่ระบบ-01."""
+    result = auth_service.register_user(
+        first_name=payload.get("first_name") or payload.get("firstName"),
+        last_name=payload.get("last_name") or payload.get("lastName"),
+        date_of_birth=payload.get("date_of_birth") or payload.get("dateOfBirth") or payload.get("birth_date"),
+        national_id=payload.get("national_id") or payload.get("nationalId"),
+        phone=payload.get("phone"),
+        email=payload.get("email"),
+        password=payload.get("password") or payload.get("new_password"),
+        student_id=payload.get("student_id") or payload.get("studentId"),
+    )
+    if not result["success"]:
+        status = 503 if result.get("code") == "registry_unavailable" else 422
+        return JSONResponse(status_code=status, content=result)
+    return result
+
+
 @app.get("/api/auth/session")
 def auth_session_endpoint(request: Request) -> dict[str, Any]:
     member = get_session_user(request.cookies.get(SESSION_COOKIE))
@@ -907,7 +926,14 @@ def auth_session_endpoint(request: Request) -> dict[str, Any]:
 def password_reset_endpoint(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     student_id = payload.get("student_id") or payload.get("studentId") or payload.get("username")
     new_password = payload.get("new_password") or payload.get("newPassword")
-    result = reset_password(student_id=student_id, new_password=new_password)
+    result = reset_password(
+        student_id=student_id,
+        new_password=new_password,
+        national_id=payload.get("national_id") or payload.get("nationalId"),
+        phone=payload.get("phone"),
+        date_of_birth=payload.get("date_of_birth") or payload.get("dateOfBirth") or payload.get("birth_date"),
+        identifier=payload.get("identifier") or payload.get("email"),
+    )
     return result
 
 

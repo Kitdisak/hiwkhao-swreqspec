@@ -9,8 +9,10 @@ import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
+
+from . import registry
 
 from .models import User
 
@@ -196,6 +198,15 @@ def hash_password(password: str) -> str:
         f"pbkdf2_sha256${100_000}$"
         f"{base64.b64encode(salt).decode('ascii')}$"
         f"{base64.b64encode(digest).decode('ascii')}"
+    )
+
+
+def validate_password(password: str | None) -> bool:
+    """ตรวจรหัสผ่านตาม NFR-SEC-01."""
+    if not password or len(password) < 5:
+        return False
+    return any(character.isalpha() for character in password) and any(
+        character.isdigit() for character in password
     )
 
 
@@ -734,6 +745,142 @@ def _find_login_user(identifier: str | None) -> User | None:
     return None
 
 
+def register_user(
+    *,
+    first_name: str | None,
+    last_name: str | None,
+    date_of_birth: str | None,
+    national_id: str | None,
+    phone: str | None,
+    email: str | None,
+    password: str | None,
+    student_id: str | None = None,
+) -> dict[str, Any]:
+    """สมัครสมาชิกตาม AC-สมัครสมาชิก-/-เข้าสู่ระบบ-01."""
+    first_name = (first_name or "").strip()
+    last_name = (last_name or "").strip()
+    national_id = (national_id or "").strip()
+    phone = (phone or "").strip()
+    email = (email or "").strip() or None
+    student_id = (student_id or "").strip() or None
+
+    try:
+        parsed_birth = date.fromisoformat((date_of_birth or "").strip())
+    except ValueError:
+        return {
+            "success": False,
+            "code": "invalid_birth_date",
+            "message": "กรุณาระบุวันเกิดให้ถูกต้อง",
+        }
+
+    if not first_name or not last_name or not national_id or not phone:
+        return {
+            "success": False,
+            "code": "required_fields",
+            "message": "กรุณากรอกข้อมูลบังคับให้ครบ",
+        }
+    if not validate_password(password):
+        return {
+            "success": False,
+            "code": "invalid_password",
+            "message": "รหัสผ่านต้องยาวอย่างน้อย 5 ตัวและมีตัวอักษรกับตัวเลข",
+        }
+
+    user_type = "external"
+    role = "member"
+    permissions = ("view_profile",)
+    username = (email or national_id)
+    resolved_student_id = None
+
+    if student_id:
+        lookup_status = registry.lookup_student(student_id, national_id)
+        if lookup_status == "timeout":
+            return {
+                "success": False,
+                "code": "registry_unavailable",
+                "message": "ระบบทะเบียนไม่ตอบสนอง โปรดลองใหม่ภายหลัง",
+            }
+        if lookup_status == "found":
+            record = registry.get_student(student_id)
+            if record is not None and record.status == "Active":
+                user_type = "student"
+                role = "student"
+                permissions = ("view_profile", "borrow_book")
+                resolved_student_id = student_id
+                first_name = record.first_name or first_name
+                last_name = record.last_name or last_name
+                parsed_birth = record.date_of_birth
+
+    if student_id is None:
+        staff_status = registry.lookup_staff(national_id)
+        if staff_status == "timeout":
+            return {
+                "success": False,
+                "code": "registry_unavailable",
+                "message": "ระบบทะเบียนไม่ตอบสนอง โปรดลองใหม่ภายหลัง",
+            }
+        if staff_status == "found":
+            record = registry.get_staff(national_id)
+            if record is not None:
+                user_type = "staff"
+                role = "librarian"
+                permissions = ("view_profile", "borrow_book", "manage_books")
+                email = record.email or email
+                first_name = record.first_name or first_name
+                last_name = record.last_name or last_name
+                parsed_birth = record.date_of_birth
+
+    if user_type == "external" and not email:
+        return {
+            "success": False,
+            "code": "email_required",
+            "message": "อีเมลห้ามว่างสำหรับบุคคลภายนอก",
+        }
+
+    normalized_username = (
+        resolved_student_id
+        if user_type == "student"
+        else (email or national_id)
+    )
+    for existing in USERS:
+        if existing.username.casefold() == normalized_username.casefold():
+            return {
+                "success": False,
+                "code": "account_exists",
+                "message": "บัญชีนี้มีอยู่แล้ว",
+            }
+        if email and existing.email.casefold() == email.casefold():
+            return {
+                "success": False,
+                "code": "email_duplicate",
+                "message": "อีเมลนี้ถูกใช้โดยบัญชีอื่นแล้ว",
+            }
+
+    display_name = f"{first_name} {last_name}".strip()
+    created = User(
+        username=normalized_username,
+        email=email or "",
+        student_id=resolved_student_id,
+        password_hash=hash_password(password or ""),
+        user_type=user_type,
+        role=role,
+        permissions=permissions,
+        account_status="Active",
+        first_name=first_name,
+        last_name=last_name,
+        phone=phone,
+        national_id=national_id,
+        date_of_birth=parsed_birth,
+    )
+    USERS.append(created)
+    return {
+        "success": True,
+        "message": "สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ",
+        "user": created.to_dict(),
+        "display_name": display_name,
+    }
+
+
 def login_user(username: str | None = None, password: str | None = None, email: str | None = None) -> dict[str, Any]:
     identifier = (username or email or "").strip()
     user = _find_login_user(identifier)
@@ -788,15 +935,86 @@ def login_user(username: str | None = None, password: str | None = None, email: 
     }
 
 
-def reset_password(student_id: str | None = None, new_password: str | None = None) -> dict[str, Any]:
-    if not student_id:
-        return {"success": False, "message": "ข้อมูลนักศึกษาไม่ถูกต้อง", "can_reset": False}
+def reset_password(
+    student_id: str | None = None,
+    new_password: str | None = None,
+    national_id: str | None = None,
+    phone: str | None = None,
+    date_of_birth: str | None = None,
+    identifier: str | None = None,
+) -> dict[str, Any]:
+    """ยืนยันตัวตนและตั้งรหัสผ่านใหม่สำหรับนักศึกษา/บุคลากร/บุคคลภายนอก."""
+    user = None
+    if student_id:
+        user = _find_user(student_id)
+    elif identifier:
+        user = _find_login_user(identifier)
+    elif national_id:
+        user = next(
+            (
+                item
+                for item in USERS
+                if item.national_id == national_id.strip()
+                or item.email.casefold() == national_id.strip().casefold()
+            ),
+            None,
+        )
 
-    user = _find_user(student_id)
     if not user:
         return {"success": False, "message": "ข้อมูลนักศึกษาไม่ถูกต้อง", "can_reset": False}
 
+    has_verification_fields = bool(national_id or phone or date_of_birth)
+    if has_verification_fields:
+        if not national_id or not phone or not date_of_birth:
+            return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ครบ", "can_reset": False}
+        try:
+            parsed_birth = date.fromisoformat(date_of_birth)
+        except ValueError:
+            return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ถูกต้อง", "can_reset": False}
+
+        if user.user_type == "student":
+            if not student_id:
+                return {"success": False, "message": "ข้อมูลนักศึกษาไม่ถูกต้อง", "can_reset": False}
+            lookup_status = registry.lookup_student(student_id, national_id)
+            if lookup_status == "timeout":
+                return {
+                    "success": False,
+                    "message": "ระบบทะเบียนไม่ตอบสนอง โปรดลองใหม่ภายหลัง",
+                    "can_reset": False,
+                }
+            record = registry.get_student(student_id)
+            if lookup_status != "found" or record is None:
+                return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ถูกต้อง", "can_reset": False}
+            if record.phone and record.phone != phone:
+                return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ถูกต้อง", "can_reset": False}
+            if record.date_of_birth != parsed_birth:
+                return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ถูกต้อง", "can_reset": False}
+        elif user.user_type == "staff":
+            lookup_status = registry.lookup_staff(national_id)
+            if lookup_status == "timeout":
+                return {
+                    "success": False,
+                    "message": "ระบบทะเบียนไม่ตอบสนอง โปรดลองใหม่ภายหลัง",
+                    "can_reset": False,
+                }
+            record = registry.get_staff(national_id)
+            if lookup_status != "found" or record is None:
+                return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ถูกต้อง", "can_reset": False}
+            if record.phone and record.phone != phone:
+                return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ถูกต้อง", "can_reset": False}
+            if record.date_of_birth != parsed_birth:
+                return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ถูกต้อง", "can_reset": False}
+        else:
+            if user.national_id != national_id or user.phone != phone or user.date_of_birth != parsed_birth:
+                return {"success": False, "message": "ข้อมูลยืนยันตัวตนไม่ถูกต้อง", "can_reset": False}
+
     if new_password:
+        if not validate_password(new_password):
+            return {
+                "success": False,
+                "message": "รหัสผ่านต้องยาวอย่างน้อย 5 ตัวและมีตัวอักษรกับตัวเลข",
+                "can_reset": False,
+            }
         updated = User(
             username=user.username,
             email=user.email,
@@ -810,6 +1028,9 @@ def reset_password(student_id: str | None = None, new_password: str | None = Non
             unpaid_fine_count=user.unpaid_fine_count,
             first_name=user.first_name,
             last_name=user.last_name,
+            phone=user.phone,
+            national_id=user.national_id,
+            date_of_birth=user.date_of_birth,
         )
         for index, current in enumerate(USERS):
             if current.username == user.username:

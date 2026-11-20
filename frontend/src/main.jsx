@@ -5,6 +5,8 @@ import FinePaymentPage from "./features/fine_payment/FinePaymentPage.jsx";
 import BookDetailPage from "./features/book_details/BookDetailPage.jsx";
 import SearchPage from "./features/book_search/SearchPage.jsx";
 import LoginPage from "./features/auth/LoginPage.jsx";
+import RegisterPage from "./features/auth/RegisterPage.jsx";
+import ForgotPasswordPage from "./features/auth/ForgotPasswordPage.jsx";
 import AvailabilityPage from "./features/rooms/AvailabilityPage.jsx";
 import ReservationPage from "./features/rooms/ReservationPage.jsx";
 import MyReservationsPage from "./features/reservations/MyReservationsPage.jsx";
@@ -27,6 +29,8 @@ const isRoomReservations = currentPath === "/rooms/reservations";
 const isLoanRecording = currentPath === "/loans/new";
 const isReturnRecording = currentPath === "/returns";
 const isLogin = currentPath === "/login";
+const isRegister = currentPath === "/register";
+const isForgotPassword = currentPath === "/forgot-password";
 const isBookManagement = currentPath === "/manage/books";
 const isUserManagement = currentPath === "/manage/users";
 const isReports = currentPath === "/reports";
@@ -50,6 +54,10 @@ if (isFinePayment) {
   document.title = "รับคืนหนังสือและคำนวณค่าปรับ";
 } else if (isLogin) {
   document.title = "เข้าสู่ระบบ";
+} else if (isRegister) {
+  document.title = "สมัครสมาชิก";
+} else if (isForgotPassword) {
+  document.title = "ลืมรหัสผ่าน";
 } else if (isBookManagement) {
   document.title = "จัดการข้อมูลหนังสือ";
 } else if (isUserManagement) {
@@ -64,6 +72,10 @@ createRoot(document.getElementById("root")).render(
       <FinePaymentPage />
     ) : isLogin ? (
       <LoginPage />
+    ) : isRegister ? (
+      <RegisterPage />
+    ) : isForgotPassword ? (
+      <ForgotPasswordPage />
     ) : isRoomAvailability ? (
       <AvailabilityPage />
     ) : isRoomReservation ? (
