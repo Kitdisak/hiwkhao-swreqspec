@@ -4,6 +4,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
+from dataclasses import replace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -94,11 +95,19 @@ def _record_review(
     amount: Decimal | None,
     reason: str,
     received_at: datetime,
+    *,
+    transaction_number: str | None = None,
+    expected_amount: Decimal | None = None,
+    raw_gateway_data: dict[str, Any] | None = None,
 ) -> None:
     PAYMENT_REVIEW_RECORDS.append(
         PaymentReviewRecord(
+            review_id=uuid.uuid4().hex,
             received_payment_ref=payment_ref,
             reported_amount=amount,
+            gateway_transaction_number=transaction_number,
+            expected_amount=expected_amount,
+            raw_gateway_data=raw_gateway_data,
             reason=reason,
             created_at=received_at,
         )
@@ -115,6 +124,13 @@ def _apply_result(result: GatewayResult, now: datetime) -> dict[str, Any]:
                 result.amount,
                 "ไม่พบ payment_ref ที่ตรงกับคำขอ",
                 now,
+                transaction_number=result.transaction_number,
+                raw_gateway_data={
+                    "payment_ref": result.payment_ref,
+                    "amount": format(result.amount, ".2f"),
+                    "status": result.status.value,
+                    "transaction_number": result.transaction_number,
+                },
             )
             return {"acknowledged": False, "status": "review"}
 
@@ -124,13 +140,53 @@ def _apply_result(result: GatewayResult, now: datetime) -> dict[str, Any]:
                 result.amount,
                 "ยอดเงินจาก Gateway ไม่ตรงกับยอดคำขอ",
                 now,
+                transaction_number=result.transaction_number,
+                expected_amount=request.amount,
+                raw_gateway_data={
+                    "payment_ref": result.payment_ref,
+                    "amount": format(result.amount, ".2f"),
+                    "status": result.status.value,
+                    "transaction_number": result.transaction_number,
+                },
             )
             return {"acknowledged": True, "status": "review"}
 
         if request.status == PaymentStatus.SUCCEEDED:
+            if result.status == PaymentStatus.SUCCEEDED:
+                if result.transaction_number == request.gateway_transaction_number:
+                    logger.info(
+                        "Duplicate successful payment callback received: ref=%s transaction=%s",
+                        result.payment_ref,
+                        result.transaction_number,
+                    )
+                    return {"acknowledged": True, "status": request.status.value}
+                _record_review(
+                    result.payment_ref,
+                    result.amount,
+                    "เลขธุรกรรมใหม่กับ payment_ref เดิม; ตรวจว่าตัดเงินซ้ำเพื่อคืนเงิน",
+                    now,
+                    transaction_number=result.transaction_number,
+                    expected_amount=request.amount,
+                )
+                return {"acknowledged": True, "status": "review"}
             return {"acknowledged": True, "status": request.status.value}
 
         if result.status == PaymentStatus.SUCCEEDED:
+            fines = _find_fines(request.fine_ids)
+            already_paid = any(fine.status == FineStatus.PAID for fine in fines)
+            if request.status == PaymentStatus.CANCELLED and already_paid:
+                request.status = PaymentStatus.DUPLICATE_REFUND_PENDING
+                request.gateway_transaction_number = result.transaction_number
+                _record_review(
+                    result.payment_ref,
+                    result.amount,
+                    "คำขอที่ถูกยกเลิกได้รับผลสำเร็จซ้ำหลังค่าปรับถูกชำระแล้ว; รอคืนเงิน",
+                    now,
+                    transaction_number=result.transaction_number,
+                    expected_amount=request.amount,
+                )
+                return {"acknowledged": True, "status": request.status.value}
+
             if request.status not in {PaymentStatus.PENDING, PaymentStatus.EXPIRED}:
                 _record_review(
                     result.payment_ref,
@@ -149,7 +205,6 @@ def _apply_result(result: GatewayResult, now: datetime) -> dict[str, Any]:
                 )
                 return {"acknowledged": True, "status": "review"}
 
-            fines = _find_fines(request.fine_ids)
             if len(fines) != len(request.fine_ids):
                 _record_review(
                     result.payment_ref,
@@ -160,6 +215,19 @@ def _apply_result(result: GatewayResult, now: datetime) -> dict[str, Any]:
                 return {"acknowledged": True, "status": "review"}
 
             already_paid = any(fine.status == FineStatus.PAID for fine in fines)
+            if already_paid:
+                request.status = PaymentStatus.DUPLICATE_REFUND_PENDING
+                request.gateway_transaction_number = result.transaction_number
+                _record_review(
+                    result.payment_ref,
+                    result.amount,
+                    "คำขอชำระสำเร็จซ้ำหลังค่าปรับถูกชำระแล้ว; รอคืนเงิน",
+                    now,
+                    transaction_number=result.transaction_number,
+                    expected_amount=request.amount,
+                )
+                return {"acknowledged": True, "status": request.status.value}
+
             request.status = PaymentStatus.SUCCEEDED
             request.gateway_transaction_number = result.transaction_number
             for fine in fines:
@@ -172,13 +240,13 @@ def _apply_result(result: GatewayResult, now: datetime) -> dict[str, Any]:
                 fine_ids=request.fine_ids,
                 paid_at=now,
             )
-            if already_paid:
-                _record_review(
-                    result.payment_ref,
-                    result.amount,
-                    "ค่าปรับบางรายการถูกชำระจากคำขออื่นแล้ว; โปรดให้บรรณารักษ์ตรวจสอบ",
-                    now,
-                )
+            for other_request in PAYMENT_REQUESTS.values():
+                if (
+                    other_request.payment_ref != request.payment_ref
+                    and other_request.status == PaymentStatus.PENDING
+                    and set(other_request.fine_ids).intersection(request.fine_ids)
+                ):
+                    other_request.status = PaymentStatus.CANCELLED
             return {"acknowledged": True, "status": request.status.value}
 
         if result.status == PaymentStatus.FAILED:
@@ -252,6 +320,8 @@ def start_payment(
             PaymentStatus.SUCCEEDED: "ชำระค่าปรับสำเร็จ",
             PaymentStatus.FAILED: "ชำระไม่สำเร็จ กรุณาลองใหม่",
             PaymentStatus.EXPIRED: "คำขอชำระหมดอายุ กรุณาเริ่มรายการใหม่",
+            PaymentStatus.CANCELLED: "คำขอชำระถูกยกเลิก",
+            PaymentStatus.DUPLICATE_REFUND_PENDING: "พบการชำระซ้ำ กรุณารอเจ้าหน้าที่ตรวจสอบ",
         }[request.status]
         return {
             "success": True,
@@ -267,7 +337,11 @@ def handle_gateway_callback(payload: dict[str, Any], now: datetime | None = None
     except GatewayNotConfigured as error:
         raise PaymentDomainError(str(error), 503) from error
     except InvalidGatewayResult as error:
-        raise PaymentDomainError(str(error), 400) from error
+        logger.warning(
+            "Payment callback signature verification failed: payment_ref=%s",
+            payload.get("payment_ref"),
+        )
+        raise PaymentDomainError(str(error), 401) from error
     return _apply_result(result, current_time)
 
 
@@ -337,3 +411,70 @@ def poll_pending_requests(now: datetime | None = None) -> int:
 def list_payment_requests() -> list[dict[str, Any]]:
     with STORE_LOCK:
         return [request.to_dict() for request in PAYMENT_REQUESTS.values()]
+
+
+def list_payment_reviews() -> list[dict[str, Any]]:
+    with STORE_LOCK:
+        return [review.to_dict() for review in PAYMENT_REVIEW_RECORDS]
+
+
+def decide_payment_review(
+    review_id: str,
+    *,
+    decision: str,
+    resolved_by: str,
+    reason: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    if decision not in {"ยืนยันว่าชำระแล้ว", "ส่งคืนเงิน"}:
+        raise PaymentDomainError("การตัดสินใจต้องเป็น 'ยืนยันว่าชำระแล้ว' หรือ 'ส่งคืนเงิน'", 422)
+    if not reason.strip():
+        raise PaymentDomainError("ต้องระบุเหตุผลการตัดสินใจ", 422)
+
+    current_time = _now(now)
+    with STORE_LOCK:
+        review = next(
+            (item for item in PAYMENT_REVIEW_RECORDS if item.review_id == review_id),
+            None,
+        )
+        if review is None:
+            raise PaymentDomainError("ไม่พบรายการรอตรวจสอบ", 404)
+        if review.status != "pending":
+            raise PaymentDomainError("รายการรอตรวจสอบได้รับการตัดสินใจแล้ว", 409)
+
+        resolved_status = (
+            "resolved_confirmed"
+            if decision == "ยืนยันว่าชำระแล้ว"
+            else "refund_requested"
+        )
+        resolved_review = replace(
+            review,
+            status=resolved_status,
+            resolved_by=resolved_by,
+            resolved_at=current_time,
+            resolution_reason=reason,
+        )
+        index = PAYMENT_REVIEW_RECORDS.index(review)
+        PAYMENT_REVIEW_RECORDS[index] = resolved_review
+
+        if decision == "ยืนยันว่าชำระแล้ว":
+            request = PAYMENT_REQUESTS.get(review.received_payment_ref)
+            if request is not None and review.expected_amount == request.amount:
+                fines = _find_fines(request.fine_ids)
+                request.status = PaymentStatus.SUCCEEDED
+                request.gateway_transaction_number = review.gateway_transaction_number
+                for fine in fines:
+                    fine.status = FineStatus.PAID
+                if review.gateway_transaction_number:
+                    PAYMENT_RECORDS.setdefault(
+                        request.payment_ref,
+                        PaymentRecord(
+                            payment_ref=request.payment_ref,
+                            transaction_number=review.gateway_transaction_number,
+                            amount=request.amount,
+                            fine_ids=request.fine_ids,
+                            paid_at=current_time,
+                        ),
+                    )
+
+        return resolved_review.to_dict()

@@ -1445,3 +1445,37 @@ def payment_status_check_endpoint(
         )
     except fine_payment_service.PaymentDomainError as error:
         raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+
+
+@app.get("/api/admin/payment-reviews")
+def list_payment_reviews_endpoint(request: Request) -> dict[str, Any]:
+    """แสดงรายการรอตรวจสอบให้เจ้าหน้าที่การเงิน; บรรณารักษ์ดูได้เฉพาะรายการผ่านสิทธิ์ที่กำหนด (ASM-14)."""
+    user = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if user is None:
+        raise HTTPException(status_code=401, detail="กรุณาเข้าสู่ระบบ")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์ดูรายการรอตรวจสอบ")
+    return {"reviews": fine_payment_service.list_payment_reviews()}
+
+
+@app.post("/api/admin/payment-reviews/{review_id}/decision")
+def decide_payment_review_endpoint(
+    review_id: str,
+    request: Request,
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    """เจ้าหน้าที่การเงินยืนยันการชำระหรือขอคืนเงินและบันทึกผู้ตัดสินใจเหตุผล (ASM-14)."""
+    user = get_session_user(request.cookies.get(SESSION_COOKIE))
+    if user is None:
+        raise HTTPException(status_code=401, detail="กรุณาเข้าสู่ระบบ")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์ตัดสินรายการชำระ")
+    try:
+        return fine_payment_service.decide_payment_review(
+            review_id,
+            decision=payload.get("decision", ""),
+            resolved_by=user.username,
+            reason=payload.get("reason", ""),
+        )
+    except fine_payment_service.PaymentDomainError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error

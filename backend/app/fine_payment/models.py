@@ -17,6 +17,8 @@ class PaymentStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     EXPIRED = "expired"
+    CANCELLED = "cancelled"
+    DUPLICATE_REFUND_PENDING = "ชำระซ้ำ – รอคืนเงิน"
 
 
 @dataclass
@@ -99,17 +101,35 @@ class PaymentRecord:
 
 @dataclass(frozen=True)
 class PaymentReviewRecord:
+    review_id: str
     received_payment_ref: str
     reported_amount: Decimal | None
     reason: str
     created_at: datetime
+    gateway_transaction_number: str | None = None
+    expected_amount: Decimal | None = None
+    raw_gateway_data: dict[str, Any] | None = None
+    status: str = "pending"
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    resolution_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "review_id": self.review_id,
             "received_payment_ref": self.received_payment_ref,
             "reported_amount": (
                 format(self.reported_amount, ".2f") if self.reported_amount is not None else None
             ),
+            "gateway_transaction_number": self.gateway_transaction_number,
+            "expected_amount": (
+                format(self.expected_amount, ".2f") if self.expected_amount is not None else None
+            ),
+            "raw_gateway_data": self.raw_gateway_data,
             "reason": self.reason,
             "created_at": self.created_at.isoformat(),
+            "status": self.status,
+            "resolved_by": self.resolved_by,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "resolution_reason": self.resolution_reason,
         }
