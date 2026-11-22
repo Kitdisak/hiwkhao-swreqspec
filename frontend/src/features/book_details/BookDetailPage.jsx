@@ -196,7 +196,7 @@ export default function BookDetailPage({ bookId }) {
               ) : session ? (
                 <p>
                   กรุณาเข้าสู่ระบบก่อนจองหนังสือ{" "}
-                  <a href="/src/features/002-สมัครสมาชิก-เข้าสู่ระบบ/index.html">
+                  <a href={`/login?returnTo=${encodeURIComponent(`/books/${encodeURIComponent(bookId)}`)}`}>
                     ไปหน้าเข้าสู่ระบบ
                   </a>
                 </p>

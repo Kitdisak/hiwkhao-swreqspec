@@ -39,6 +39,13 @@ prompt-log.md                AI สร้างให้เมื่อใช้
 
 รายละเอียดคำสั่งอยู่ที่ `docs/agent-pack-README.md`
 
+## บัญชีทดสอบ
+
+- Admin: `admin` / `admin123`
+- นักศึกษา: `s12345` / `pass1234`
+
+บัญชี Admin มี `manage_users` และเข้าหน้าเปลี่ยน Role/Permission ได้ที่ `/manage/users`
+
 ## ถ้าเป็น repo ของทีม
 
 - แก้ชื่อ repo เป็น `<ชื่อทีม>-swreqspec` และตั้งเป็น public

@@ -143,6 +143,12 @@ export default function SearchPage() {
           จัดการข้อมูลหนังสือ
         </a>
         {session?.authenticated &&
+          session.permissions?.includes("manage_users") && (
+            <a className="feature-link" href="/manage/users">
+              จัดการสมาชิกและสิทธิ์ผู้ใช้
+            </a>
+          )}
+        {session?.authenticated &&
           (session.role === "admin" ||
             session.role === "librarian" ||
             session.permissions?.includes("view_reports")) && (

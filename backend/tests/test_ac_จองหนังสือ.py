@@ -327,3 +327,42 @@ def test_reservation_requires_authenticated_session(tmp_path, monkeypatch):
     assert response.status_code == 401
     assert response.json()["code"] == "authentication_required"
     assert reservation_service.list_reservations_for_testing() == []
+
+
+def test_reservation_normalizes_seeded_null_copy_status(tmp_path, monkeypatch):
+    monkeypatch.setenv("LIBRARY_RESERVATION_DB", str(tmp_path / "reservations.sqlite3"))
+
+    connection = reservation_service._connect()
+    try:
+        connection.execute(
+            "UPDATE book_copies SET status = NULL WHERE item_identifier = 'BK-001'"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    client = TestClient(app)
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "s12345", "password": "pass1234"},
+    )
+    assert login.json()["success"] is True
+
+    response = client.post(
+        "/api/reservations",
+        json={"title_id": "BOOK-001", "request_id": "request-null-status-migration"},
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["status"] == "Waiting"
+
+
+def test_reservation_rejects_external_user(reservation_environment):
+    client, members, _ = reservation_environment
+    members[0] = replace(members[0], user_type="external")
+
+    response = _reserve(client, "request-external")
+
+    assert response.status_code == 403
+    assert "บุคคลภายนอกไม่อนุญาตให้ยืมหนังสือ" in response.json()["message"]
+    assert reservation_service.list_reservations_for_testing() == []

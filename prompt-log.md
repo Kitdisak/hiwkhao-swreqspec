@@ -2948,3 +2948,30 @@
   - อัปเดต tasks.md ให้สะท้อน T-01 ถึง T-15 ทั้งหมดดำเนินแล้ว
   - ลบสถานะรอ Q-xx เก่าทั้งหมดเพราะ spec ปัจจุบันไม่มี Open Questions ค้าง
   - ยืนยัน coverage ของ FR-01 ถึง FR-04, NFR-SEC-01/NFR-SEC-02 และ AC-01 ถึง AC-04
+
+  ---
+
+  ## [2569-11-22] คำสั่ง: troubleshoot spec-004 จองหนังสือ
+
+  - เครื่องมือ: Copilot SDK ใน VS Code
+  - ไฟล์ต้นทาง: specs/004-จองหนังสือ/spec.md
+  - ผลลัพธ์: แก้ root cause ที่ทำให้จองหนังสือไม่ได้
+  - สรุป:
+    - พบ Copy ตัวอย่างถูก seed ด้วย status NULL ทำให้ reservation คืน 503
+    - ตั้งสถานะ Copy ตัวอย่างเป็น Borrowed และเพิ่ม migration เปลี่ยน status NULL เป็น Borrowed
+    - ปฏิเสธผู้ใช้ external การยืมตาม SPEC-002 และปรับลิงก์เข้าสู่ระบบในหน้ารายละเอียดไป `/login`
+    - ทดสอบ `test_ac_จองหนังสือ.py` ผ่าน 19 tests และ frontend build ผ่าน
+
+---
+
+## [2569-11-22] คำสั่ง: เพิ่มเส้นทางเข้าถึงบัญชี Admin
+
+- เครื่องมือ: Copilot SDK ใน VS Code
+- ไฟล์: README.md, frontend/src/features/book_search/SearchPage.jsx
+- ผลลัพธ์:
+  - ยืนยันบัญชี Admin seed มีอยู่ใน backend และ login ผ่าน
+  - เพิ่มลิงก์ `/manage/users` เฉพาะผู้ที่มี Permission `manage_users`
+  - บันทึกบัญชีทดสอบ Admin และนักศึกษาใน README
+- การตรวจสอบ:
+  - `test_ac_สมัครสมาชิก_เข้าสู่ระบบ_02.py` และ `test_ac_จัดการสมาชิกและสิทธิ์ผู้ใช้.py` ผ่าน 22 tests
+  - frontend build ผ่าน

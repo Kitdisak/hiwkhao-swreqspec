@@ -85,6 +85,14 @@ def initialize_catalog_store(
     for statement in statements:
         connection.execute(statement)
 
+    connection.execute(
+        """
+        UPDATE book_copies
+        SET status = 'Borrowed'
+        WHERE status IS NULL
+        """
+    )
+
     seeded = connection.execute(
         "SELECT value FROM catalog_store_meta WHERE key = 'legacy_catalog_seeded'"
     ).fetchone()

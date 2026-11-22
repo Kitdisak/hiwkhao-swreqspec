@@ -146,6 +146,8 @@ def _copy_statuses(
 
 def _eligibility_reasons(member: User) -> list[str]:
     reasons = []
+    if member.user_type == "external":
+        reasons.append("บุคคลภายนอกไม่อนุญาตให้ยืมหนังสือ")
     if member.account_status == "Suspended":
         reasons.append("บัญชีถูกระงับ")
     if member.overdue_count > 0:

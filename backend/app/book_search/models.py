@@ -115,7 +115,7 @@ CATALOG_RECORDS: list[CatalogRecord] = [
         keywords=["software", "design", "engineering"],
         categories=[Category(code="005.1", label="005.1")],
         copies=[
-            BookCopy(book_id="BOOK-001", item_identifier="BK-001"),
+            BookCopy(book_id="BOOK-001", item_identifier="BK-001", status="Borrowed"),
         ],
     ),
     CatalogRecord(
@@ -126,7 +126,7 @@ CATALOG_RECORDS: list[CatalogRecord] = [
         keywords=["ai", "artificial intelligence", "machine learning"],
         categories=[Category(code="006.3", label="006.3")],
         copies=[
-            BookCopy(book_id="BOOK-002", item_identifier="BK-002"),
+            BookCopy(book_id="BOOK-002", item_identifier="BK-002", status="Borrowed"),
         ],
     ),
     CatalogRecord(
@@ -137,7 +137,7 @@ CATALOG_RECORDS: list[CatalogRecord] = [
         keywords=["database", "sql", "query"],
         categories=[Category(code="005.74", label="005.74")],
         copies=[
-            BookCopy(book_id="BOOK-003", item_identifier="BK-003"),
+            BookCopy(book_id="BOOK-003", item_identifier="BK-003", status="Borrowed"),
         ],
     ),
     CatalogRecord(
@@ -148,7 +148,7 @@ CATALOG_RECORDS: list[CatalogRecord] = [
         keywords=["information system", "analysis", "business"],
         categories=[Category(code="658.403", label="658.403")],
         copies=[
-            BookCopy(book_id="BOOK-004", item_identifier="BK-004"),
+            BookCopy(book_id="BOOK-004", item_identifier="BK-004", status="Borrowed"),
         ],
     ),
 ]
